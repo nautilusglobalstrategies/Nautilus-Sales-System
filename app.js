@@ -41,12 +41,11 @@ function renderDashboard(){
     <div style="padding:20px;">
       <h2 style="margin:0 0 10px 0;">Dashboard Mode</h2>
       <div style="opacity:0.9;">This is the stable base. Call Mode runs the wizard.</div>
-      <div style="margin-top:14px;">
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
         <div class="pill"><span class="dot ${tempDotClass()}"></span> Phase: <b>${state.phase}</b></div>
-        <div style="height:10px;"></div>
         <div class="pill">Structural: <b>${state.structural}</b></div>
-        <div style="height:10px;"></div>
         <div class="pill">Risk: <b>${state.risk}</b></div>
+        <div class="pill"><span class="dot ${tempDotClass()}"></span> Temp: <b>${state.temperature}</b></div>
       </div>
     </div>
   `;
@@ -82,12 +81,20 @@ function renderCallMode(){
           <input id="other" class="nss-input" placeholder="${q.placeholder||"Optional"}">
         </div>` : ""}
 
+        <!-- Temperature quick-pick (no cycling) -->
+        <div style="margin-top:14px;">
+          <div style="opacity:0.75;font-size:12px;margin-bottom:6px;">Psychological Temperature</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="chip ${state.temperature==="CALM" ? "chip--on" : ""}" type="button" onclick="window.setTemp('CALM')">Calm</button>
+            <button class="chip ${state.temperature==="GUARDED" ? "chip--on" : ""}" type="button" onclick="window.setTemp('GUARDED')">Guarded</button>
+            <button class="chip ${state.temperature==="DEFENSIVE" ? "chip--on" : ""}" type="button" onclick="window.setTemp('DEFENSIVE')">Defensive</button>
+            <button class="chip ${state.temperature==="RESISTANT" ? "chip--on" : ""}" type="button" onclick="window.setTemp('RESISTANT')">Resistant</button>
+          </div>
+        </div>
+
         <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between;">
           <button class="btn2" type="button" onclick="window.back()" ${state.idx===0?"disabled":""}>Back</button>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn2" type="button" onclick="window.temp()">Cycle Temp</button>
-            <button class="btn2 btn2--gold" type="button" onclick="window.next()">Next</button>
-          </div>
+          <button class="btn2 btn2--gold" type="button" onclick="window.next()">Next</button>
         </div>
       </div>
 
@@ -110,6 +117,13 @@ function renderCallMode(){
   `;
 }
 
+window.setTemp = (t) => {
+  const prev = state.temperature;
+  state.temperature = t;
+  log(`Temp: ${prev} → ${t}`);
+  renderCallMode();
+};
+
 window.pick = (val) => {
   state.structural += 10;
   log(`Picked: ${val}`);
@@ -117,7 +131,6 @@ window.pick = (val) => {
 };
 
 window.next = () => {
-  // Capture text if present
   const txt = document.getElementById("txt");
   const other = document.getElementById("other");
   if (txt && txt.value.trim()){
@@ -137,13 +150,6 @@ window.next = () => {
 window.back = () => {
   state.idx = Math.max(state.idx - 1, 0);
   state.phase = (state.idx === 0) ? "QUALIFY" : (state.idx === 1 ? "ALIGN" : "LEVERAGE");
-  renderCallMode();
-};
-
-window.temp = () => {
-  const order = ["CALM","GUARDED","DEFENSIVE","RESISTANT"];
-  state.temperature = order[(order.indexOf(state.temperature)+1)%order.length];
-  log(`Temp → ${state.temperature}`);
   renderCallMode();
 };
 
