@@ -1,128 +1,23 @@
-:root{
-  --bg:#0B1C2D;
-  --panel:#132A3A;
-  --text:#E8EEF2;
-  --muted: rgba(232,238,242,0.75);
-  --gold:#C6A94A;
-  --border: rgba(232,238,242,0.12);
-
-  --teal:#2AA198;
-  --amber:#E6A23C;
-  --red:#D9534F;
+body {
+  background: #0B1C2D;
+  color: white;
+  font-family: Arial;
+  margin: 0;
 }
 
-*{ box-sizing:border-box; }
-body{
-  margin:0;
-  font-family: Arial, sans-serif;
-  background: var(--bg);
-  color: var(--text);
+.topbar {
+  background: #132A3A;
+  padding: 15px;
+  display: flex;
+  justify-content: space-between;
 }
 
-.topbar{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  padding:15px 20px;
-  background: var(--panel);
-  border-bottom: 1px solid rgba(198,169,74,0.25);
-}
-
-.brand__title{ font-weight:800; font-size:18px; }
-.brand__sub{ font-size:12px; color: var(--gold); margin-top:2px; }
-
-.topbar__nav{ display:flex; gap:10px; }
-
-/* Top buttons (always visible) */
-.topbtn{
-  background: transparent;
-  border: 1px solid rgba(198,169,74,0.65);
-  color: var(--text);
-  padding: 9px 12px;
-  border-radius: 10px;
-  cursor:pointer;
-}
-.topbtn:hover{ background: rgba(198,169,74,0.12); }
-.topbtn:active{ transform: translateY(1px); }
-
-.app{ padding:14px; }
-
-/* Wizard chips */
-.chip{
-  border: 1px solid var(--border);
-  background: rgba(11,28,45,0.55);
-  color: rgba(232,238,242,0.92);
-  padding: 8px 10px;
-  border-radius: 999px;
+button {
+  padding: 8px 12px;
+  margin-left: 5px;
   cursor: pointer;
 }
-.chip:hover{ background: rgba(198,169,74,0.12); }
-.chip--on{
-  border-color: rgba(198,169,74,0.75);
-  box-shadow: 0 0 0 2px rgba(198,169,74,0.12) inset;
+
+#app {
+  padding: 20px;
 }
-
-.nss-input, .nss-select{
-  width: 100%;
-  max-width: 720px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: rgba(11,28,45,0.55);
-  color: rgba(232,238,242,0.92);
-  outline: none;
-}
-
-.nss-select{ max-width: 240px; }
-
-.btn2{
-  border: 1px solid var(--border);
-  background: rgba(11,28,45,0.55);
-  color: rgba(232,238,242,0.92);
-  padding: 9px 12px;
-  border-radius: 10px;
-  cursor:pointer;
-}
-.btn2:hover{ background: rgba(198,169,74,0.12); }
-.btn2:disabled{ opacity:0.45; cursor:not-allowed; }
-.btn2--gold{
-  border-color: rgba(198,169,74,0.75);
-  background: rgba(198,169,74,0.14);
-}
-
-.assistBox{
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(11,28,45,0.55);
-  padding: 10px;
-  border-radius: 10px;
-}
-
-.hint{ opacity:0.88; font-size: 13px; margin-bottom: 6px; }
-
-.monoBox{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.35;
-  max-height: 220px;
-  overflow: auto;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(11,28,45,0.55);
-  padding: 10px;
-  border-radius: 10px;
-}
-
-.pill{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  border:1px solid rgba(255,255,255,0.08);
-  background: rgba(11,28,45,0.55);
-  padding: 8px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-}
-
-.dot{ width:10px; height:10px; border-radius:999px; background: var(--teal); }
-.dot--teal{ background: var(--teal); }
-.dot--amber{ background: var(--amber); }
-.dot--red{ background: var(--red); }
