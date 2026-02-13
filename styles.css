@@ -1,0 +1,37 @@
+body {
+  margin:0;
+  font-family: Arial, sans-serif;
+  background:#0B1C2D;
+  color:#E8EEF2;
+}
+
+.topbar {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:15px 20px;
+  background:#132A3A;
+}
+
+.brand__title {
+  font-weight:bold;
+  font-size:18px;
+}
+
+.brand__sub {
+  font-size:12px;
+  color:#C6A94A;
+}
+
+button {
+  background:#132A3A;
+  border:1px solid #C6A94A;
+  color:#E8EEF2;
+  padding:8px 12px;
+  margin-left:8px;
+  cursor:pointer;
+}
+
+button:hover {
+  background:#1f3d55;
+}
