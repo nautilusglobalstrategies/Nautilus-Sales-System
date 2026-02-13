@@ -1,37 +1,59 @@
-console.log("NSS Voss-Only + Smart Branching + Greeting/Close loaded ✅");
+console.log("NSS Voss-Only + Smart Branching + Proper Opening loaded ✅");
 
 let state = {
   mode: "dashboard",
   idx: 0,
   temperature: "CALM",
-  path: null,                 // BUYER | TRADER | AGENT
-  answers: {},                // key -> { value, pending }
+  path: null,
+  answers: {},
   log: ["Voss-Only wizard ready."],
-  flow: [],                   // computed list of keys
-  lastSavedKey: null,
+  flow: [],
 };
 
 /* =========================
-   QUESTION DEFINITIONS
+   QUESTIONS
 ========================= */
 
 const QUESTIONS = {
-  // --- Bookends
-  greeting: q({
+  // ---- Opening sequence (before qualification)
+  opening_greeting: q({
     section: "Opening",
     base: "Greeting",
     type: "single",
-    options: ["Start"],
+    options: ["Continue"],
   }),
 
-  closing: q({
-    section: "Closing",
-    base: "Gratitude",
+  opening_identity: q({
+    section: "Opening",
+    base: "Identity Check",
+    type: "text",
+    placeholder: "Prospect name / confirmation",
+    optional: true,
+  }),
+
+  opening_permission_record: q({
+    section: "Opening",
+    base: "Permission to Record",
     type: "single",
-    options: ["Finish"],
+    options: ["Yes", "No"],
   }),
 
-  // --- Authority first
+  opening_inquiry_confirm: q({
+    section: "Opening",
+    base: "Inquiry Confirmation",
+    type: "text",
+    placeholder: "Product / destination / qty (if known)",
+    optional: true,
+  }),
+
+  opening_time_check: q({
+    section: "Opening",
+    base: "Time Check",
+    type: "single",
+    options: ["Yes, now is good", "No, call me back"],
+  }),
+
+  // ---- Authority-first (but framed correctly)
   authority: q({
     section: "Authority",
     base: "Authority",
@@ -51,7 +73,7 @@ const QUESTIONS = {
     showIf: (s) => s.path !== "AGENT",
   }),
 
-  // Company identity
+  // Company
   company_name: q({ section: "Company", base: "Company Name", type: "text", placeholder: "Registered company name" }),
   country_address: q({ section: "Company", base: "Country & Address", type: "text", placeholder: "Country + business address" }),
   website: q({ section: "Company", base: "Website", type: "text", placeholder: "Website or N/A", optional: true }),
@@ -59,7 +81,7 @@ const QUESTIONS = {
   entity_type: q({ section: "Company", base: "Entity Type", type: "text", placeholder: "LLC / Corp / Partnership", optional: true }),
   contact_person: q({ section: "Company", base: "Key Contact", type: "text", placeholder: "Name, title, phone, email" }),
 
-  // Agent/Trader path
+  // Trader/Agent
   principal_disclosure: q({
     section: "Authority",
     base: "Principal",
@@ -95,56 +117,21 @@ const QUESTIONS = {
     showIf: (s) => s.path !== "AGENT",
   }),
 
-  // Product requirements
+  // Product
   product: q({ section: "Product", base: "Product", type: "text", placeholder: "e.g., Sunflower Oil" }),
   specs: q({ section: "Product", base: "Specifications", type: "text", placeholder: "Specs/grade/standards" }),
   quantity: q({ section: "Product", base: "Quantity", type: "number", placeholder: "Quantity", unitOptions: ["MT","40ft containers","20ft containers"] }),
-
-  packaging: q({
-    section: "Product",
-    base: "Packaging",
-    type: "single",
-    options: ["Bulk","Flexitank","Bottled","Bagged","Drums","Other"],
-    optional: true,
-  }),
+  packaging: q({ section: "Product", base: "Packaging", type: "single", options: ["Bulk","Flexitank","Bottled","Bagged","Drums","Other"], optional: true }),
 
   // Logistics
-  incoterms: q({
-    section: "Logistics",
-    base: "Delivery Terms",
-    type: "single",
-    options: ["FOB","CIF","CFR","EXW","DDP","Other"],
-    optional: true,
-  }),
-
+  incoterms: q({ section: "Logistics", base: "Delivery Terms", type: "single", options: ["FOB","CIF","CFR","EXW","DDP","Other"], optional: true }),
   destination_port: q({ section: "Logistics", base: "Destination Port", type: "text", placeholder: "Port name(s)" }),
-
-  timeline: q({
-    section: "Logistics",
-    base: "Timeline",
-    type: "single",
-    options: ["Immediate","Within 30 days","Within 60 days","Within 90 days","Long-term contract"],
-    optional: true,
-  }),
+  timeline: q({ section: "Logistics", base: "Timeline", type: "single", options: ["Immediate","Within 30 days","Within 60 days","Within 90 days","Long-term contract"], optional: true }),
 
   // Financial
   target_price: q({ section: "Financial", base: "Target Price", type: "text", placeholder: "Example: 820–860 USD/MT" }),
-
-  primary_instrument: q({
-    section: "Financial",
-    base: "Primary Instrument",
-    type: "single",
-    options: ["LC","DLC","SBLC","TT","Escrow","Other"],
-  }),
-
-  secondary_instrument: q({
-    section: "Financial",
-    base: "Secondary Instrument",
-    type: "single",
-    options: ["None","LC","DLC","SBLC","TT","Escrow","Other"],
-    optional: true,
-  }),
-
+  primary_instrument: q({ section: "Financial", base: "Primary Instrument", type: "single", options: ["LC","DLC","SBLC","TT","Escrow","Other"] }),
+  secondary_instrument: q({ section: "Financial", base: "Secondary Instrument", type: "single", options: ["None","LC","DLC","SBLC","TT","Escrow","Other"], optional: true }),
   issuing_bank: q({
     section: "Financial",
     base: "Issuing Bank",
@@ -155,56 +142,16 @@ const QUESTIONS = {
       return prim && prim !== "TT";
     }
   }),
-
-  guarantees: q({
-    section: "Financial",
-    base: "Guarantees",
-    type: "single",
-    options: ["Yes","No","Depends on terms"],
-    optional: true,
-  }),
-
-  docs_available: q({
-    section: "Docs",
-    base: "Documents",
-    type: "single",
-    options: ["Yes","No","Some of them","Depends"],
-    optional: true,
-  }),
+  guarantees: q({ section: "Financial", base: "Guarantees", type: "single", options: ["Yes","No","Depends on terms"], optional: true }),
+  docs_available: q({ section: "Docs", base: "Documents", type: "single", options: ["Yes","No","Some of them","Depends"], optional: true }),
 
   // Engagement
-  loi_ready: q({
-    section: "Engagement",
-    base: "LOI/ICPO Readiness",
-    type: "single",
-    options: ["Yes","Needs internal approval","No"],
-  }),
+  loi_ready: q({ section: "Engagement", base: "LOI/ICPO Readiness", type: "single", options: ["Yes","Needs internal approval","No"] }),
+  contract_preference: q({ section: "Engagement", base: "Contract Preference", type: "single", options: ["Long-term contract","Spot only","Both"], optional: true }),
+  compliance: q({ section: "Compliance", base: "Compliance Requirements", type: "text", placeholder: "Compliance requirements (or None)", optional: true }),
 
-  contract_preference: q({
-    section: "Engagement",
-    base: "Contract Preference",
-    type: "single",
-    options: ["Long-term contract","Spot only","Both"],
-    optional: true,
-  }),
+  other_commodities: q({ section: "Relationship", base: "Other Commodities", type: "text", placeholder: "Other commodities (buy/sell)", optional: true }),
 
-  compliance: q({
-    section: "Compliance",
-    base: "Compliance Requirements",
-    type: "text",
-    placeholder: "Compliance requirements (or None)",
-    optional: true,
-  }),
-
-  other_commodities: q({
-    section: "Relationship",
-    base: "Other Commodities",
-    type: "text",
-    placeholder: "Other commodities (buy/sell)",
-    optional: true,
-  }),
-
-  // Verification gate (only when risk elevated)
   verification_gate: q({
     section: "Verification",
     base: "Verification Preference",
@@ -212,14 +159,27 @@ const QUESTIONS = {
     placeholder: "Verification preference",
     showIf: (s) => computeRisk(s) >= 45
   }),
+
+  closing: q({
+    section: "Closing",
+    base: "Gratitude",
+    type: "single",
+    options: ["Finish"],
+  }),
 };
 
 /* =========================
    FLOW BUILDER
 ========================= */
-
 function buildFlow() {
-  const flow = ["greeting","authority"];
+  const flow = [
+    "opening_greeting",
+    "opening_identity",
+    "opening_permission_record",
+    "opening_inquiry_confirm",
+    "opening_time_check",
+    "authority"
+  ];
 
   if (!state.path) {
     const auth = getVal(state, "authority");
@@ -228,48 +188,37 @@ function buildFlow() {
 
   if (shouldAsk("role")) flow.push("role");
 
-  // Company
   flow.push("company_name","country_address","contact_person");
   if (shouldAsk("website")) flow.push("website");
   if (shouldAsk("year_established")) flow.push("year_established");
   if (shouldAsk("entity_type")) flow.push("entity_type");
 
-  // Agent/Trader
   if (shouldAsk("principal_disclosure")) flow.push("principal_disclosure");
   if (shouldAsk("mandate")) flow.push("mandate");
 
-  // Business profile
   if (shouldAsk("core_activity")) flow.push("core_activity");
   if (shouldAsk("licenses")) flow.push("licenses");
 
-  // Product
   flow.push("product","specs","quantity");
   if (shouldAsk("packaging")) flow.push("packaging");
 
-  // Logistics
   if (shouldAsk("incoterms")) flow.push("incoterms");
   flow.push("destination_port");
   if (shouldAsk("timeline")) flow.push("timeline");
 
-  // Financial
   flow.push("target_price","primary_instrument");
   if (shouldAsk("secondary_instrument")) flow.push("secondary_instrument");
   if (shouldAsk("issuing_bank")) flow.push("issuing_bank");
   if (shouldAsk("guarantees")) flow.push("guarantees");
   if (shouldAsk("docs_available")) flow.push("docs_available");
 
-  // Engagement + compliance
   flow.push("loi_ready");
   if (shouldAsk("contract_preference")) flow.push("contract_preference");
   if (shouldAsk("compliance")) flow.push("compliance");
 
-  // Verification inserted when needed
   if (shouldAsk("verification_gate")) flow.push("verification_gate");
-
-  // Relationship expansion
   if (shouldAsk("other_commodities")) flow.push("other_commodities");
 
-  // Close
   flow.push("closing");
 
   state.flow = flow;
@@ -288,12 +237,10 @@ function resolvePathFromAnswers() {
 }
 
 /* =========================
-   SCORING
+   RISK
 ========================= */
-
 function computeRisk(s) {
   let r = 0;
-
   const price = getVal(s, "target_price");
   const prim  = getVal(s, "primary_instrument");
   const bank  = getVal(s, "issuing_bank");
@@ -312,189 +259,53 @@ function computeRisk(s) {
   return Math.min(r, 100);
 }
 
-function computePhase() {
-  const pct = state.flow.length ? Math.round(((state.idx + 1) / state.flow.length) * 100) : 0;
-  if (pct < 45) return "QUALIFY";
-  if (pct < 80) return "ALIGN";
-  return "LEVERAGE";
-}
-
 /* =========================
-   VOSS-ONLY PROMPT ENGINE
-   - Main prompt is always Voss style.
-   - Dynamic variations based on temperature + risk + answer quality.
+   VOSS PROMPTS (Main)
 ========================= */
-
-function vossPrompt(key) {
-  const Q = QUESTIONS[key];
+function vossMainPrompt(key) {
   const risk = computeRisk(state);
   const temp = state.temperature;
-  const a = state.answers[key]?.value;
-  const empty = !hasValue(a);
+  const soften = (temp !== "CALM");
+  const opener = soften ? "Help me understand—" : "So we keep this clean—";
+  const tighten = risk >= 50 ? "Just so we don’t build a paper deal—" : "";
 
-  // Greeting and closing are scripted
-  if (key === "greeting") {
-    return {
-      main: "Hi — thanks for taking the time. Before we get into details, can I quickly confirm a few basics so we keep this efficient?",
-      steering: [
-        "My goal is simple: get you a clean offer that matches your terms without back-and-forth."
-      ]
-    };
-  }
-
-  if (key === "closing") {
-    return {
-      main: "I appreciate your time today. Based on what you shared, the next step is for us to prepare the offer package. What’s the best way to keep momentum from here — email, WhatsApp, or a scheduled follow-up?",
-      steering: [
-        "And just so we keep opportunities flowing — what other commodities are you consistently buying or selling?"
-      ]
-    };
-  }
-
-  // Temperature framing
-  const soften = (temp === "GUARDED" || temp === "DEFENSIVE" || temp === "RESISTANT");
-  const opener = soften
-    ? "Help me understand—"
-    : "So we don’t waste cycles—";
-
-  // Risk-based tightening (without sounding accusatory)
-  const tighten = risk >= 50 ? "Just so we keep this clean and executable—" : "";
-
-  // Base Voss prompts by key
   const MAP = {
-    authority: [
-      `${opener}are you the person who can approve and sign this, or does it go through someone else?`,
-      `So I route this correctly—who makes the final call on this purchase?`
-    ],
+    opening_greeting: `Hi — thanks for taking my call. This is a quick follow-up on your commodity inquiry. Is now still a good time for 3–5 minutes?`,
+    opening_identity: `So I make sure I’m speaking to the right person—what name should I put on the file?`,
+    opening_permission_record: `Before we start, would it be okay if I record this call for accuracy so I don’t miss details?`,
+    opening_inquiry_confirm: `Just to confirm what you submitted—what product, quantity, and destination are we building around?`,
+    opening_time_check: `What would make this call valuable for you today—speed to offer, best pricing, or certainty on execution?`,
 
-    role: [
-      `${opener}are you buying for end use, distributing, trading, or acting as an agent?`,
-      `Where do you sit in the chain on this one—end buyer, distributor, trader, or agent?`
-    ],
+    authority: `${opener}who approves and signs on your side—are you that person, or does it go through someone else?`,
+    role: `${opener}are you buying for end use, distributing, trading, or acting as an agent?`,
 
-    company_name: [
-      `${opener}what’s the exact registered company name that will appear on the documents?`
-    ],
+    company_name: `${opener}what’s the exact registered company name that will appear on documents?`,
+    country_address: `${opener}what country is the buyer entity registered in, and what address should tie to the deal?`,
+    contact_person: `${opener}who’s the best point of contact—name, title, phone/email?`,
 
-    country_address: [
-      `${opener}what country is the buying entity registered in, and what business address should be tied to the deal?`
-    ],
+    principal_disclosure: `${tighten}${opener}who is the principal/end buyer you represent—company name and country?`,
+    mandate: `${tighten}${opener}do you have mandate authorization to negotiate and submit LOI/ICPO for the principal?`,
 
-    contact_person: [
-      `${opener}who should we treat as the key point of contact—name, title, and best number/email?`
-    ],
+    product: `${opener}what’s the exact product you want sourced?`,
+    specs: `${opener}what quality specs are non-negotiable for you?`,
+    quantity: `${opener}what quantity are you targeting—MT or containers?`,
+    destination_port: `${opener}what destination port should we price to?`,
 
-    principal_disclosure: [
-      `${tighten}${opener}who is the end buyer / principal you represent—company name and country?`
-    ],
+    target_price: `${tighten}${opener}what target price range per MT are you aiming for?`,
+    primary_instrument: `${tighten}${opener}what primary payment instrument will you use—LC, DLC, SBLC, TT, escrow, or other?`,
+    issuing_bank: `${tighten}${opener}which bank will issue the instrument (name + country) so we stay aligned from day one?`,
+    loi_ready: `${tighten}${opener}once terms align, are you ready to issue LOI/ICPO on letterhead so we can move quickly?`,
 
-    mandate: [
-      `${opener}do you have mandate authorization to negotiate and submit LOI/ICPO for the principal?`
-    ],
+    other_commodities: `${opener}besides this product, what other commodities are you consistently buying or selling?`,
 
-    product: [
-      `${opener}what’s the exact product you want us to source?`
-    ],
-
-    specs: [
-      `${opener}what specs or standards are non-negotiable for you on quality?`
-    ],
-
-    quantity: [
-      `${opener}what quantity do you want to start with—MT or containers?`
-    ],
-
-    packaging: [
-      `${opener}how do you want it packaged—bulk, flexitank, bottled, bagged, drums, or something else?`
-    ],
-
-    incoterms: [
-      `${opener}which terms do you want—FOB, CIF, CFR, or something else?`
-    ],
-
-    destination_port: [
-      `${opener}what destination port should we price to?`
-    ],
-
-    timeline: [
-      `${opener}what delivery timing are you working against—immediate, 30/60/90, or contract?`
-    ],
-
-    target_price: [
-      // You wanted them to disclose before you “structure the best offer”
-      `${tighten}${opener}what target price range per MT are you aiming for?`,
-      `What number makes this a “yes” for you per MT—before we spend time building the offer?`
-    ],
-
-    primary_instrument: [
-      `${tighten}${opener}what primary payment instrument will you use—LC, DLC, SBLC, TT, escrow, or other?`
-    ],
-
-    secondary_instrument: [
-      `${opener}do you have a backup instrument option available if needed?`
-    ],
-
-    issuing_bank: [
-      `${tighten}${opener}which bank will issue the instrument (name + country) so we stay aligned from day one?`
-    ],
-
-    guarantees: [
-      `${opener}if the supplier requires it, are you open to escrow/performance bond/financial guarantees—or is that a hard no?`
-    ],
-
-    docs_available: [
-      `${opener}if requested, what’s easiest for you to provide—company profile, CIS, or a BCL/POF?`
-    ],
-
-    loi_ready: [
-      `${tighten}${opener}once terms align, are you ready to issue LOI/ICPO on letterhead so we can move quickly?`
-    ],
-
-    contract_preference: [
-      `${opener}is this spot only, long-term contract, or both?`
-    ],
-
-    compliance: [
-      `${opener}any compliance or regulatory requirements on your side that we should design around up front?`
-    ],
-
-    other_commodities: [
-      `${opener}besides this product, what other commodities are you consistently buying or selling?`
-    ],
-
-    verification_gate: [
-      // Only appears when risk elevated
-      `${tighten}How do you prefer we verify capability in a way that respects your time and keeps momentum?`
-    ],
+    closing: `Thank you for your time today. Based on what you shared, we’ll move this into offer prep. What’s the best next step to keep momentum—email, WhatsApp, or a scheduled follow-up?`,
   };
 
-  const list = MAP[key] || [`${opener}${Q?.base ? `for ${Q.base},` : ""} what’s the simplest accurate answer on your side?`];
-
-  // Dynamic steering lines (these replace “suggestions” with closing guidance)
-  const steering = [];
-
-  if (empty && (temp === "DEFENSIVE" || temp === "RESISTANT")) {
-    steering.push("It seems like this part might be sensitive. What’s the easiest way to answer it without going deep?");
-  }
-
-  if (key === "target_price" && empty) {
-    steering.push("If you give me your target range, I can structure an offer that actually fits your approval path.");
-  }
-
-  if (key === "issuing_bank" && empty && risk >= 50) {
-    steering.push("This helps us avoid offers that look good on paper but can’t clear banking in real life.");
-  }
-
-  if ((key === "mandate" || key === "principal_disclosure") && state.path !== "BUYER") {
-    steering.push("Sounds like speed matters. Getting clarity here prevents delays later without adding friction.");
-  }
-
-  // Pick a main prompt (first option)
-  return { main: list[0], alt: list[1] || "", steering };
+  return MAP[key] || `${opener}what’s the simplest accurate answer on your side for this?`;
 }
 
 /* =========================
-   UI RENDER
+   RENDER
 ========================= */
 
 function renderDashboard() {
@@ -502,36 +313,17 @@ function renderDashboard() {
   resolvePathFromAnswers();
   buildFlow();
 
-  const risk = computeRisk(state);
-  const phase = computePhase();
-
   const app = document.getElementById("app");
   app.innerHTML = `
     <div style="padding:20px;">
       <h2>Dashboard</h2>
-      <div style="margin:8px 0;">Path: <b>${escapeHtml(state.path || "—")}</b></div>
-      <div style="margin:8px 0;">Phase: <b>${phase}</b></div>
-      <div style="margin:8px 0;">Risk: <b>${risk}</b>/100</div>
-      <div style="margin:8px 0;">Temperature: <b>${escapeHtml(state.temperature)}</b></div>
-
-      <div style="margin:12px 0; display:flex; gap:10px; flex-wrap:wrap;">
+      <div>Path: <b>${escapeHtml(state.path || "—")}</b></div>
+      <div>Risk: <b>${computeRisk(state)}</b>/100</div>
+      <div>Temp: <b>${escapeHtml(state.temperature)}</b></div>
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
         <button onclick="renderCallMode()">Open Call Mode</button>
         <button onclick="resetDeal()">Start New Deal</button>
         <button onclick="copySummary()">Copy Summary</button>
-      </div>
-
-      <div style="margin-top:14px; padding:10px; background:#132A3A; border-radius:10px;">
-        <div style="opacity:0.8; font-size:12px; margin-bottom:6px;">Flow Preview (${state.flow.length} steps)</div>
-        <div style="font-size:12px; line-height:1.4;">
-          ${state.flow.map((k,i)=>`<span style="opacity:${i===state.idx?1:0.7};">${i+1}. ${escapeHtml(k)}</span>`).join("<br>")}
-        </div>
-      </div>
-
-      <div style="margin-top:14px; padding:10px; background:#132A3A; border-radius:10px;">
-        <div style="opacity:0.8; font-size:12px; margin-bottom:6px;">Activity</div>
-        <div style="font-size:12px; line-height:1.4;">
-          ${state.log.slice(0,12).map(x=>escapeHtml(x)).join("<br>")}
-        </div>
       </div>
     </div>
   `;
@@ -549,67 +341,33 @@ function renderCallMode() {
   const Q = QUESTIONS[key];
   const A = state.answers[key] || { value: "", pending: false };
 
-  const risk = computeRisk(state);
-  const phase = computePhase();
-
-  const VP = vossPrompt(key);
-  const showAlt = VP.alt && VP.alt.length > 0;
-
   const app = document.getElementById("app");
   app.innerHTML = `
     <div style="padding:20px;">
-      <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-        <div>
-          <h2 style="margin:0;">Call Mode</h2>
-          <div style="opacity:0.8; font-size:12px;">Path: <b>${escapeHtml(state.path)}</b> • Phase: <b>${phase}</b> • Step ${state.idx+1}/${state.flow.length}</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:12px; opacity:0.8;">Risk: <b>${risk}</b>/100</div>
-          <div style="font-size:12px; opacity:0.8;">Temperature: <b>${escapeHtml(state.temperature)}</b></div>
-        </div>
+      <div style="opacity:0.8; font-size:12px;">
+        Step ${state.idx+1}/${state.flow.length} • ${escapeHtml(Q.section)} • Key: <b>${escapeHtml(key)}</b>
       </div>
 
-      <div style="margin-top:14px; padding:12px; background:#132A3A; border-radius:10px;">
-        <div style="opacity:0.75; font-size:12px;">${escapeHtml(Q.section)} • Key: <b>${escapeHtml(key)}</b></div>
+      <div style="margin-top:10px; font-size:16px;">
+        <b>${escapeHtml(vossMainPrompt(key))}</b>
+      </div>
 
-        <div style="margin-top:8px; font-size:16px;"><b>${escapeHtml(VP.main)}</b></div>
+      <div style="margin-top:12px;">
+        ${renderInput(key, Q, A)}
+      </div>
 
-        ${showAlt ? `
-          <div style="margin-top:8px; opacity:0.85; font-size:13px;">
-            Alternative: <span style="opacity:0.9;">${escapeHtml(VP.alt)}</span>
-            <button onclick="copyLine(${JSON.stringify(VP.alt)})" style="margin-left:8px;">Copy alt</button>
-          </div>
-        ` : ""}
+      <div style="margin-top:12px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; align-items:center;">
+        <label style="font-size:12px; opacity:0.9;">
+          <input type="checkbox" ${A.pending ? "checked" : ""} onchange="setPending('${key}', this.checked)" />
+          Mark Pending
+        </label>
 
-        ${VP.steering && VP.steering.length ? `
-          <div style="margin-top:10px; padding:10px; background:rgba(11,28,45,0.55); border-radius:10px; border:1px solid rgba(255,255,255,0.08);">
-            <div style="opacity:0.85; font-size:12px; margin-bottom:6px;"><b>Steering</b> (use if needed):</div>
-            ${VP.steering.map(line => `
-              <div style="display:flex; gap:10px; align-items:flex-start; margin:6px 0;">
-                <div style="flex:1; font-size:13px;">${escapeHtml(line)}</div>
-                <button onclick="copyLine(${JSON.stringify(line)})">Copy</button>
-              </div>
-            `).join("")}
-          </div>
-        ` : ""}
-
-        <div style="margin-top:12px;">
-          ${renderInput(key, Q, A)}
-        </div>
-
-        <div style="margin-top:12px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; align-items:center;">
-          <label style="font-size:12px; opacity:0.9;">
-            <input type="checkbox" ${A.pending ? "checked" : ""} onchange="setPending('${key}', this.checked)" />
-            Mark Pending
-          </label>
-
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button onclick="back()">Back</button>
-            <button onclick="save()">Save</button>
-            <button onclick="next()">Next</button>
-            <button onclick="finish()">Finish</button>
-            <button onclick="copySummary()">Copy Summary</button>
-          </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button onclick="back()">Back</button>
+          <button onclick="save()">Save</button>
+          <button onclick="next()">Next</button>
+          <button onclick="finish()">Finish</button>
+          <button onclick="copySummary()">Copy Summary</button>
         </div>
       </div>
 
@@ -621,26 +379,18 @@ function renderCallMode() {
           `).join("")}
         </div>
       </div>
-
-      <div style="margin-top:12px; padding:12px; background:#132A3A; border-radius:10px;">
-        <div style="opacity:0.8; font-size:12px; margin-bottom:6px;">Activity</div>
-        <div style="font-size:12px; line-height:1.4;">
-          ${state.log.slice(0,10).map(x=>escapeHtml(x)).join("<br>")}
-        </div>
-      </div>
     </div>
   `;
 }
 
 /* =========================
-   INPUT / SAVE
+   INPUT/SAVE
 ========================= */
 
 function renderInput(key, Q, A) {
   if (Q.type === "text") {
     return `<input id="field" style="width:100%; padding:10px;" placeholder="${escapeHtml(Q.placeholder||"")}" value="${escapeHtml(A.value||"")}" />`;
   }
-
   if (Q.type === "number") {
     const unitOptions = Q.unitOptions || ["MT"];
     let n = "", u = unitOptions[0];
@@ -658,7 +408,6 @@ function renderInput(key, Q, A) {
       </div>
     `;
   }
-
   if (Q.type === "single") {
     return `
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -670,8 +419,7 @@ function renderInput(key, Q, A) {
       </div>
     `;
   }
-
-  return `<input id="field" style="width:100%; padding:10px;" value="${escapeHtml(A.value||"")}" />`;
+  return "";
 }
 
 function save() {
@@ -683,7 +431,6 @@ function save() {
     const el = document.getElementById("field");
     if (el) A.value = el.value.trim();
   }
-
   if (Q.type === "number") {
     const n = (document.getElementById("num")?.value || "").trim();
     const u = (document.getElementById("unit")?.value || "").trim();
@@ -692,26 +439,16 @@ function save() {
 
   A.pending = false;
   state.answers[key] = A;
-  state.lastSavedKey = key;
 
   resolvePathFromAnswers();
   buildFlow();
-
-  log(`Saved: ${key}`);
   renderCallMode();
 }
 
 function pick(key, value) {
-  const A = state.answers[key] || { value: "", pending: false };
-  A.value = value;
-  A.pending = false;
-  state.answers[key] = A;
-  state.lastSavedKey = key;
-
+  state.answers[key] = { value, pending: false };
   resolvePathFromAnswers();
   buildFlow();
-
-  log(`Selected: ${key} = ${value}`);
   renderCallMode();
 }
 
@@ -719,141 +456,53 @@ function setPending(key, checked) {
   const A = state.answers[key] || { value: "", pending: false };
   A.pending = checked;
   state.answers[key] = A;
-  log(`${key} marked ${checked ? "PENDING" : "ANSWERED"}`);
 }
 
 function setTemp(t) {
-  const prev = state.temperature;
   state.temperature = t;
-  log(`Temp: ${prev} → ${t}`);
   renderCallMode();
 }
 
-/* =========================
-   NAV
-========================= */
-
-function next() {
-  save();
-  if (state.idx < state.flow.length - 1) state.idx++;
-  renderCallMode();
-}
-
-function back() {
-  save();
-  if (state.idx > 0) state.idx--;
-  renderCallMode();
-}
-
-function finish() {
-  save();
-  renderDashboard();
-}
-
-function resetDeal() {
-  state.idx = 0;
-  state.path = null;
-  state.temperature = "CALM";
-  state.answers = {};
-  state.flow = [];
-  state.log = ["New deal started."];
-  renderDashboard();
-}
+function next() { save(); if (state.idx < state.flow.length - 1) state.idx++; renderCallMode(); }
+function back() { save(); if (state.idx > 0) state.idx--; renderCallMode(); }
+function finish() { save(); renderDashboard(); }
+function resetDeal() { state.idx=0; state.path=null; state.temperature="CALM"; state.answers={}; buildFlow(); renderDashboard(); }
 
 /* =========================
    SUMMARY
 ========================= */
-
 async function copySummary() {
   resolvePathFromAnswers();
   buildFlow();
-
-  const risk = computeRisk(state);
-  const phase = computePhase();
-
   const lines = [];
   lines.push("NAUTILUS SALES SYSTEM — DEAL SUMMARY");
   lines.push(`Path: ${state.path}`);
-  lines.push(`Phase: ${phase}`);
-  lines.push(`Risk: ${risk}/100`);
-  lines.push(`Temperature: ${state.temperature}`);
+  lines.push(`Risk: ${computeRisk(state)}/100`);
+  lines.push(`Temp: ${state.temperature}`);
   lines.push("");
   lines.push("Answers:");
-
   for (const k of state.flow) {
-    if (k === "greeting" || k === "closing") continue;
-    const Q = QUESTIONS[k];
+    if (k.startsWith("opening_") || k === "closing") continue;
     const A = state.answers[k];
     if (!A) continue;
-    const v = A.pending ? "[PENDING]" : (A.value || "");
-    if (!hasValue(v) && Q.optional) continue;
-    lines.push(`- ${k}: ${v}`);
+    lines.push(`- ${k}: ${A.pending ? "[PENDING]" : (A.value || "")}`);
   }
-
   const txt = lines.join("\n");
-  try {
-    await navigator.clipboard.writeText(txt);
-    log("Summary copied ✅");
-  } catch {
-    log("Copy blocked by browser — copy manually from screen if needed.");
-  }
-
-  if (state.mode === "call") renderCallMode();
-  else renderDashboard();
-}
-
-async function copyLine(line) {
-  try {
-    await navigator.clipboard.writeText(line);
-    log("Copied line ✅");
-  } catch {
-    log("Copy blocked — select/copy manually.");
-  }
+  try { await navigator.clipboard.writeText(txt); } catch {}
 }
 
 /* =========================
    UTIL
 ========================= */
-
 function q(o){ return o; }
-
-function shouldAsk(key) {
-  const Q = QUESTIONS[key];
-  if (!Q) return false;
-  if (typeof Q.showIf === "function") return !!Q.showIf(state);
-  return true;
-}
-
-function getVal(s, key) {
-  return s.answers[key]?.value;
-}
-
-function hasValue(v) {
-  if (v == null) return false;
-  if (Array.isArray(v)) return v.length > 0;
-  if (typeof v === "string") return v.trim().length > 0;
-  return String(v).trim().length > 0;
-}
-
-function escapeHtml(str){
-  return String(str ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-
-function log(msg){
-  const t = new Date().toLocaleTimeString();
-  state.log.unshift(`[${t}] ${msg}`);
-  state.log = state.log.slice(0, 18);
-}
+function shouldAsk(key){ const Q=QUESTIONS[key]; if(!Q) return false; if(typeof Q.showIf==="function") return !!Q.showIf(state); return true; }
+function getVal(s,k){ return s.answers[k]?.value; }
+function hasValue(v){ if(v==null) return false; if(typeof v==="string") return v.trim().length>0; return String(v).trim().length>0; }
+function escapeHtml(str){ return String(str??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
 
 /* =========================
    INIT
 ========================= */
-resolvePathFromAnswers();
 buildFlow();
 renderDashboard();
 
@@ -861,7 +510,6 @@ window.renderDashboard = renderDashboard;
 window.renderCallMode = renderCallMode;
 window.resetDeal = resetDeal;
 window.copySummary = copySummary;
-window.copyLine = copyLine;
 
 window.next = next;
 window.back = back;
