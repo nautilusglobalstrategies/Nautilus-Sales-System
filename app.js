@@ -1,4 +1,4 @@
-console.log("NSS Smart Branching (Authority-first) loaded ✅");
+console.log("NSS Smart Branching + Voss Assist (B) + Advanced Toggle (C) loaded ✅");
 
 /* =========================================================
    GLOBALS expected by your index.html onclick:
@@ -10,20 +10,22 @@ let state = {
   mode: "dashboard",
   idx: 0,
   temperature: "CALM",
-  path: null,            // "BUYER" | "TRADER" | "AGENT"
-  answers: {},           // key -> { value, pending }
+  path: null,                 // "BUYER" | "TRADER" | "AGENT"
+  answers: {},                // key -> { value, pending }
   log: ["Smart Branching ready."],
-  flow: [],              // computed list of question keys in order
+  flow: [],                   // computed list of question keys in order
+
+  // Voice layers
+  vossAssist: true,           // B layer visibility
+  advancedMode: false,        // C layer visibility (toggle)
+  vossOpen: {},               // per-question collapse state
 };
 
 /* =========================
    QUESTION DEFINITIONS
-   - showIf(state) controls branching/skip
-   - type: text | number | single
 ========================= */
 
 const QUESTIONS = {
-  // --- Authority first (C)
   authority: q({
     section: "Authority",
     prompt: "Quickly so I don’t misroute this — are you the authorized decision-maker / signatory for this purchase?",
@@ -35,16 +37,14 @@ const QUESTIONS = {
     ],
   }),
 
-  // --- Role (asked only if not already clearly agent)
   role: q({
     section: "Profile",
     prompt: "Where do you sit in the chain for this deal?",
     type: "single",
     options: ["End Buyer", "Distributor", "Trader", "Agent"],
-    showIf: (s) => s.path !== "AGENT", // if agent already inferred, skip
+    showIf: (s) => s.path !== "AGENT",
   }),
 
-  // --- Company identity (core)
   company_name: q({ section: "Company", prompt: "What’s the exact registered company name on your documents?", type: "text", placeholder: "Registered Company Name" }),
   country_address: q({ section: "Company", prompt: "Country of registration + business address tied to this transaction?", type: "text", placeholder: "Country + Address" }),
   website: q({ section: "Company", prompt: "Company website (or N/A)?", type: "text", placeholder: "Website or N/A", optional: true }),
@@ -52,7 +52,6 @@ const QUESTIONS = {
   entity_type: q({ section: "Company", prompt: "Entity type (LLC, Corporation, Partnership, etc.)?", type: "text", placeholder: "LLC / Corp / Partnership", optional: true }),
   contact_person: q({ section: "Company", prompt: "Key contact (full name, title, phone/email)?", type: "text", placeholder: "Name, title, phone, email" }),
 
-  // --- Buyer/Trader/Agent-specific authority follow-up
   principal_disclosure: q({
     section: "Authority",
     prompt: "Who is the end buyer / principal you represent? (Company name + country)",
@@ -69,14 +68,13 @@ const QUESTIONS = {
     showIf: (s) => s.path === "AGENT" || s.path === "TRADER",
   }),
 
-  // --- Business profile
   core_activity: q({
     section: "Business Profile",
     prompt: "What’s your company’s core business activity (one sentence)?",
     type: "text",
     placeholder: "Core activity",
     optional: true,
-    showIf: (s) => s.path !== "AGENT", // for agents we can skip unless needed
+    showIf: (s) => s.path !== "AGENT",
   }),
 
   licenses: q({
@@ -88,10 +86,10 @@ const QUESTIONS = {
     showIf: (s) => s.path !== "AGENT",
   }),
 
-  // --- Product requirements (core)
   product: q({ section: "Product", prompt: "What product are you targeting?", type: "text", placeholder: "e.g., Sunflower Oil" }),
   specs: q({ section: "Product", prompt: "What specs/standards are required (grade, certifications, etc.)?", type: "text", placeholder: "Specs / standards" }),
   quantity: q({ section: "Product", prompt: "What quantity are you requesting?", type: "number", placeholder: "Quantity", unitOptions: ["MT", "40ft containers", "20ft containers"] }),
+
   packaging: q({
     section: "Product",
     prompt: "Preferred packaging?",
@@ -100,7 +98,6 @@ const QUESTIONS = {
     optional: true,
   }),
 
-  // --- Logistics
   incoterms: q({
     section: "Logistics",
     prompt: "Which delivery terms do you want?",
@@ -108,7 +105,9 @@ const QUESTIONS = {
     options: ["FOB", "CIF", "CFR", "EXW", "DDP", "Other"],
     optional: true,
   }),
+
   destination_port: q({ section: "Logistics", prompt: "Destination port(s)?", type: "text", placeholder: "Port name(s)" }),
+
   timeline: q({
     section: "Logistics",
     prompt: "Delivery timeline?",
@@ -117,7 +116,6 @@ const QUESTIONS = {
     optional: true,
   }),
 
-  // --- Financial qualification (core closing power)
   target_price: q({
     section: "Financial",
     prompt: "To keep us aligned — what target price range (USD/MT) are you trying to hit?",
@@ -147,7 +145,7 @@ const QUESTIONS = {
     placeholder: "Bank name + country",
     showIf: (s) => {
       const prim = getVal(s, "primary_instrument");
-      return prim && prim !== "TT"; // if TT, bank may not be required
+      return prim && prim !== "TT";
     }
   }),
 
@@ -198,7 +196,6 @@ const QUESTIONS = {
     optional: true,
   }),
 
-  // --- Verification gate (only appears when risk is high)
   verification_gate: q({
     section: "Verification",
     prompt: "So we can protect both sides — what’s the cleanest way for us to verify capability (without creating friction on your side)?",
@@ -209,62 +206,224 @@ const QUESTIONS = {
 };
 
 /* =========================
+   VOSS ASSIST LIBRARY (B)
+   + Advanced prompts (C) are toggleable
+========================= */
+
+const VOSS = {
+  authority: {
+    b: {
+      say: [
+        "Just so I don’t waste your time—are you the person who can approve and sign this, or does it go through someone else?",
+        "So I route this correctly—who makes the final call on this purchase?"
+      ],
+      labels: [
+        "Sounds like you’re trying to keep the process tight and efficient.",
+        "It seems like there’s a clear approval path here."
+      ],
+      followups: [
+        "How does approval normally work on deals like this inside your company?",
+        "What needs to be true for you to feel comfortable moving forward?"
+      ]
+    },
+    c: {
+      probes: [
+        "What’s the approval process from this call to LOI/ICPO—step by step?",
+        "Who else needs to be comfortable before anything is issued?"
+      ]
+    }
+  },
+
+  role: {
+    b: {
+      say: [
+        "Help me understand your seat—are you buying for end use, distributing, trading, or acting as an agent?",
+      ],
+      labels: ["Sounds like you know exactly where you fit in the chain."],
+      followups: ["How do you typically structure transactions in that role?"]
+    },
+    c: { probes: ["Who is the principal on paper for this transaction?"] }
+  },
+
+  target_price: {
+    b: {
+      say: [
+        "To keep us aligned—what price range are you aiming for per MT?",
+        "What number makes this a ‘yes’ for you, per MT, before we waste cycles?"
+      ],
+      labels: [
+        "Sounds like you’re protecting your margin.",
+        "It seems like you’re trying to stay inside a specific band."
+      ],
+      followups: [
+        "How are you benchmarking price—Platts, Argus, recent imports, or something else?",
+        "What’s driving that target—resale, tender requirement, or internal budget?"
+      ]
+    },
+    c: {
+      probes: [
+        "If I brought an offer outside that range, what would have to change for it to still work?",
+        "What’s the decision rule you use—lowest price, best terms, fastest delivery, or bank comfort?"
+      ]
+    }
+  },
+
+  primary_instrument: {
+    b: {
+      say: [
+        "What instrument do you prefer to use as primary—LC, DLC, SBLC, TT, or escrow?",
+        "What instrument keeps your side most comfortable on execution?"
+      ],
+      labels: [
+        "Sounds like you’re optimizing for certainty.",
+        "It seems like bank comfort matters here."
+      ],
+      followups: [
+        "Is that instrument already approved with your bank for this type of trade?",
+        "What’s your usual issuing timeline once terms are agreed?"
+      ]
+    },
+    c: {
+      probes: [
+        "Which bank issues it and what’s the swift type you typically use?",
+        "What’s the maximum tenor you can support on that instrument?"
+      ]
+    }
+  },
+
+  issuing_bank: {
+    b: {
+      say: [
+        "Which bank will issue the instrument (bank name + country), so we keep everything aligned from the start?",
+        "What bank do you normally use for trade instruments on deals like this?"
+      ],
+      labels: [
+        "Sounds like you want a smooth banking path.",
+        "It seems like you’ve got an established banking relationship."
+      ],
+      followups: [
+        "Is the issuing branch in the same country as the buyer entity?",
+        "Is there a preferred confirming bank requirement on your side?"
+      ]
+    },
+    c: {
+      probes: [
+        "What’s the cleanest way to confirm bank capability without slowing you down?",
+        "Is the instrument issuable by MT700 / MT760 depending on structure?"
+      ]
+    }
+  },
+
+  loi_ready: {
+    b: {
+      say: [
+        "Once terms align, are you ready to issue LOI/ICPO on letterhead so we can move quickly?",
+        "What needs to happen before LOI/ICPO is comfortable on your side?"
+      ],
+      labels: [
+        "Sounds like you’re balancing speed and internal control.",
+        "It seems like you want to avoid surprises later."
+      ],
+      followups: [
+        "Who else needs to review before it’s issued?",
+        "What timeline do you want from terms to LOI/ICPO?"
+      ]
+    },
+    c: {
+      probes: [
+        "If we align terms today, what would stop LOI/ICPO from being issued within 24–48 hours?",
+        "What’s the internal threshold to move from ‘interested’ to ‘committed’?"
+      ]
+    }
+  },
+
+  verification_gate: {
+    b: {
+      say: [
+        "How do you prefer we verify capability in a way that respects your time and privacy?",
+      ],
+      labels: ["Sounds like you want verification without friction."],
+      followups: ["What document or step is easiest on your side?"]
+    },
+    c: {
+      probes: [
+        "What’s the fastest verification step you can support—BCL/POF, CIS, or bank introduction?",
+        "If we keep it lightweight, what are you comfortable providing first?"
+      ]
+    }
+  }
+};
+
+// Generic fallbacks for keys without custom entries
+function genericVoss(key, prompt) {
+  return {
+    b: {
+      say: [
+        `Help me understand—${prompt}`,
+        `So I don’t miss anything—${prompt}`
+      ],
+      labels: [
+        "Sounds like you want this to be straightforward.",
+        "It seems like speed matters here."
+      ],
+      followups: [
+        "What does ‘good’ look like for you on this part?",
+        "What’s the simplest way to answer this on your side?"
+      ]
+    },
+    c: {
+      probes: [
+        "What would make this difficult to execute on your side?",
+        "What’s the cleanest way to verify this without slowing momentum?"
+      ]
+    }
+  };
+}
+
+/* =========================
    FLOW BUILDER (Branching)
 ========================= */
 
 function buildFlow() {
-  // Always start with Authority-first
   const flow = ["authority"];
 
-  // Determine path from authority answer if possible
-  // (role question may refine later)
   if (!state.path) {
     const auth = getVal(state, "authority");
     if (auth === "I’m a trader/agent/mandate (representing a buyer)") state.path = "AGENT";
   }
 
-  // Role asked (unless agent already inferred)
   if (shouldAsk("role")) flow.push("role");
 
-  // Company block
   flow.push("company_name", "country_address", "contact_person");
   if (shouldAsk("website")) flow.push("website");
   if (shouldAsk("year_established")) flow.push("year_established");
   if (shouldAsk("entity_type")) flow.push("entity_type");
 
-  // If trader/agent path, capture principal + mandate
   if (shouldAsk("principal_disclosure")) flow.push("principal_disclosure");
   if (shouldAsk("mandate")) flow.push("mandate");
 
-  // Business profile (optional)
   if (shouldAsk("core_activity")) flow.push("core_activity");
   if (shouldAsk("licenses")) flow.push("licenses");
 
-  // Product
   flow.push("product", "specs", "quantity");
   if (shouldAsk("packaging")) flow.push("packaging");
 
-  // Logistics
   if (shouldAsk("incoterms")) flow.push("incoterms");
   flow.push("destination_port");
   if (shouldAsk("timeline")) flow.push("timeline");
 
-  // Financial
   flow.push("target_price", "primary_instrument");
   if (shouldAsk("secondary_instrument")) flow.push("secondary_instrument");
   if (shouldAsk("issuing_bank")) flow.push("issuing_bank");
   if (shouldAsk("guarantees")) flow.push("guarantees");
   if (shouldAsk("docs_available")) flow.push("docs_available");
 
-  // Engagement + compliance
   flow.push("loi_ready");
   if (shouldAsk("contract_preference")) flow.push("contract_preference");
   if (shouldAsk("compliance")) flow.push("compliance");
 
-  // Verification gate (only if risk elevated)
   if (shouldAsk("verification_gate")) flow.push("verification_gate");
 
-  // Relationship expansion
   if (shouldAsk("other_commodities")) flow.push("other_commodities");
 
   state.flow = flow;
@@ -274,17 +433,14 @@ function buildFlow() {
    PATH RESOLUTION
 ========================= */
 function resolvePathFromAnswers() {
-  // Authority answer can force AGENT-ish path
   const auth = getVal(state, "authority");
   if (auth === "I’m a trader/agent/mandate (representing a buyer)") state.path = "AGENT";
 
-  // Role can refine (if asked)
   const role = getVal(state, "role");
   if (role === "Agent") state.path = "AGENT";
   if (role === "Trader") state.path = "TRADER";
   if (role === "End Buyer" || role === "Distributor") state.path = "BUYER";
 
-  // If still null, default to BUYER (most common)
   if (!state.path) state.path = "BUYER";
 }
 
@@ -292,7 +448,6 @@ function resolvePathFromAnswers() {
    SCORING
 ========================= */
 function computeStructural(s) {
-  // Key “deal reality” anchors
   const keys = [
     "company_name","country_address","contact_person",
     "product","specs","quantity","destination_port",
@@ -318,13 +473,11 @@ function computeRisk(s) {
   if (!hasValue(price)) r += 10;
   if (!hasValue(prim)) r += 25;
 
-  // If not TT and no bank, risk rises
   if (hasValue(prim) && prim !== "TT" && !hasValue(bank)) r += 25;
 
   if (String(loi || "").toLowerCase().includes("no")) r += 30;
   if (String(loi || "").toLowerCase().includes("internal")) r += 10;
 
-  // If agent/trader but no mandate: add risk
   if ((s.path === "AGENT" || s.path === "TRADER") && (!hasValue(mandate) || mandate === "No")) r += 15;
 
   return Math.min(r, 100);
@@ -354,15 +507,30 @@ function renderDashboard() {
   app.innerHTML = `
     <div style="padding:20px;">
       <h2>Dashboard</h2>
-      <div style="margin:8px 0;">Path: <b>${escapeHtml(state.path || "—")}</b></div>
-      <div style="margin:8px 0;">Phase: <b>${phase}</b></div>
-      <div style="margin:8px 0;">Structural: <b>${structural}</b>/100</div>
-      <div style="margin:8px 0;">Risk: <b>${risk}</b>/100</div>
-      <div style="margin:8px 0;">Temperature: <b>${escapeHtml(state.temperature)}</b></div>
-      <div style="margin:12px 0;">
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin:10px 0;">
+        <div style="padding:10px; background:#132A3A; border-radius:10px;">Path: <b>${escapeHtml(state.path || "—")}</b></div>
+        <div style="padding:10px; background:#132A3A; border-radius:10px;">Phase: <b>${phase}</b></div>
+        <div style="padding:10px; background:#132A3A; border-radius:10px;">Structural: <b>${structural}</b>/100</div>
+        <div style="padding:10px; background:#132A3A; border-radius:10px;">Risk: <b>${risk}</b>/100</div>
+        <div style="padding:10px; background:#132A3A; border-radius:10px;">Temp: <b>${escapeHtml(state.temperature)}</b></div>
+      </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin:12px 0;">
         <button onclick="renderCallMode()">Open Call Mode</button>
         <button onclick="resetDeal()">Start New Deal</button>
         <button onclick="copySummary()">Copy Summary</button>
+      </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin:12px 0;">
+        <label style="padding:10px; background:#132A3A; border-radius:10px;">
+          <input type="checkbox" ${state.vossAssist ? "checked" : ""} onchange="setVossAssist(this.checked)" />
+          Voss Assist (B)
+        </label>
+        <label style="padding:10px; background:#132A3A; border-radius:10px;">
+          <input type="checkbox" ${state.advancedMode ? "checked" : ""} onchange="setAdvanced(this.checked)" />
+          Advanced Mode (C)
+        </label>
       </div>
 
       <div style="margin-top:14px; padding:10px; background:#132A3A; border-radius:10px;">
@@ -387,7 +555,6 @@ function renderCallMode() {
   resolvePathFromAnswers();
   buildFlow();
 
-  // Clamp idx if flow changed
   if (state.idx >= state.flow.length) state.idx = state.flow.length - 1;
   if (state.idx < 0) state.idx = 0;
 
@@ -399,13 +566,17 @@ function renderCallMode() {
   const risk = computeRisk(state);
   const phase = computePhase();
 
+  const showAdvancedSuggestion = (!state.advancedMode && risk >= 50);
+
+  const vossPack = (VOSS[key] || genericVoss(key, Q.prompt));
+
   const app = document.getElementById("app");
   app.innerHTML = `
     <div style="padding:20px;">
       <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
         <div>
           <h2 style="margin:0;">Call Mode</h2>
-          <div style="opacity:0.8; font-size:12px;">Path: <b>${escapeHtml(state.path)}</b> • Phase: <b>${phase}</b></div>
+          <div style="opacity:0.8; font-size:12px;">Path: <b>${escapeHtml(state.path)}</b> • Phase: <b>${phase}</b> • Step ${state.idx+1}/${state.flow.length}</div>
         </div>
         <div style="text-align:right;">
           <div style="font-size:12px; opacity:0.8;">Structural: <b>${structural}</b>/100 • Risk: <b>${risk}</b>/100</div>
@@ -413,9 +584,30 @@ function renderCallMode() {
         </div>
       </div>
 
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+        <label style="padding:10px; background:#132A3A; border-radius:10px;">
+          <input type="checkbox" ${state.vossAssist ? "checked" : ""} onchange="setVossAssist(this.checked)" />
+          Voss Assist (B)
+        </label>
+        <label style="padding:10px; background:#132A3A; border-radius:10px;">
+          <input type="checkbox" ${state.advancedMode ? "checked" : ""} onchange="setAdvanced(this.checked)" />
+          Advanced Mode (C)
+        </label>
+      </div>
+
+      ${showAdvancedSuggestion ? `
+        <div style="margin-top:12px; padding:12px; background:#2a1f10; border:1px solid rgba(255,200,120,0.35); border-radius:10px;">
+          <div style="font-size:13px;"><b>Risk is elevated.</b> Want to enable Advanced Mode prompts for tighter verification without sounding aggressive?</div>
+          <div style="margin-top:8px;">
+            <button onclick="setAdvanced(true)">Enable Advanced Mode (C)</button>
+          </div>
+        </div>
+      ` : ""}
+
       <div style="margin-top:14px; padding:12px; background:#132A3A; border-radius:10px;">
-        <div style="opacity:0.75; font-size:12px;">${escapeHtml(Q.section)} • Step ${state.idx+1} of ${state.flow.length}</div>
+        <div style="opacity:0.75; font-size:12px;">${escapeHtml(Q.section)} • Key: <b>${escapeHtml(key)}</b></div>
         <div style="margin-top:8px; font-size:16px;"><b>${escapeHtml(Q.prompt)}</b></div>
+
         <div style="margin-top:12px;">
           ${renderInput(key, Q, A)}
         </div>
@@ -431,8 +623,11 @@ function renderCallMode() {
             <button onclick="save()">Save</button>
             <button onclick="next()">Next</button>
             <button onclick="finish()">Finish</button>
+            <button onclick="copySummary()">Copy Summary</button>
           </div>
         </div>
+
+        ${renderVossBlock(key, Q, vossPack)}
       </div>
 
       <div style="margin-top:12px; padding:12px; background:#132A3A; border-radius:10px;">
@@ -452,6 +647,66 @@ function renderCallMode() {
       </div>
     </div>
   `;
+}
+
+function renderVossBlock(key, Q, vossPack) {
+  if (!state.vossAssist && !state.advancedMode) return "";
+
+  const open = !!state.vossOpen[key];
+  const b = vossPack.b || genericVoss(key, Q.prompt).b;
+  const c = vossPack.c || genericVoss(key, Q.prompt).c;
+
+  const tempNote = temperatureNote(state.temperature);
+
+  return `
+    <div style="margin-top:14px; padding:12px; background:rgba(11,28,45,0.55); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap;">
+        <div style="font-size:13px;"><b>Voice Layer</b> <span style="opacity:0.75;">(${tempNote})</span></div>
+        <button onclick="toggleVossOpen('${key}')">${open ? "Hide" : "Show"} prompts</button>
+      </div>
+
+      ${open ? `
+        ${state.vossAssist ? `
+          <div style="margin-top:12px;">
+            <div style="opacity:0.8; font-size:12px; margin-bottom:6px;"><b>Voss Assist (B)</b> — tap to copy into the conversation:</div>
+            ${renderTapLines("Say", b.say)}
+            ${renderTapLines("Label", b.labels)}
+            ${renderTapLines("Follow-up", b.followups)}
+          </div>
+        ` : ""}
+
+        ${state.advancedMode ? `
+          <div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08);">
+            <div style="opacity:0.8; font-size:12px; margin-bottom:6px;"><b>Advanced Mode (C)</b> — tighter verification without sounding accusatory:</div>
+            ${renderTapLines("Probe", c.probes)}
+          </div>
+        ` : ""}
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderTapLines(label, arr) {
+  if (!arr || !arr.length) return "";
+  return `
+    <div style="margin-top:10px;">
+      <div style="opacity:0.75; font-size:12px; margin-bottom:6px;">${escapeHtml(label)}:</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        ${arr.map(line => `
+          <button onclick="tapLine(${JSON.stringify(line)})" style="text-align:left; max-width:100%;">
+            ${escapeHtml(line)}
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function temperatureNote(t) {
+  if (t === "CALM") return "keep it relaxed + forward";
+  if (t === "GUARDED") return "use softer framing + curiosity";
+  if (t === "DEFENSIVE") return "slow down + label + calibrated questions";
+  return "de-escalate + confirm + minimum viable next step";
 }
 
 /* =========================
@@ -512,11 +767,9 @@ function save() {
     if (n) A.value = `${n} ${u}`;
   }
 
-  // single answers are saved via pick()
   A.pending = false;
   state.answers[key] = A;
 
-  // resolve path & rebuild flow after key answers
   resolvePathFromAnswers();
   buildFlow();
 
@@ -530,7 +783,6 @@ function pick(key, value) {
   A.pending = false;
   state.answers[key] = A;
 
-  // Authority/role updates can change path and flow
   resolvePathFromAnswers();
   buildFlow();
 
@@ -557,13 +809,13 @@ function setTemp(t) {
 ========================= */
 
 function next() {
-  save(); // autosave on next
+  save();
   if (state.idx < state.flow.length - 1) state.idx++;
   renderCallMode();
 }
 
 function back() {
-  save(); // autosave on back too
+  save();
   if (state.idx > 0) state.idx--;
   renderCallMode();
 }
@@ -579,8 +831,42 @@ function resetDeal() {
   state.temperature = "CALM";
   state.answers = {};
   state.flow = [];
+  state.vossOpen = {};
   state.log = ["New deal started."];
   renderDashboard();
+}
+
+/* =========================
+   VOICE LAYER ACTIONS
+========================= */
+
+function toggleVossOpen(key) {
+  state.vossOpen[key] = !state.vossOpen[key];
+  renderCallMode();
+}
+
+function setVossAssist(on) {
+  state.vossAssist = !!on;
+  log(`Voss Assist (B): ${state.vossAssist ? "ON" : "OFF"}`);
+  if (state.mode === "call") renderCallMode();
+  else renderDashboard();
+}
+
+function setAdvanced(on) {
+  state.advancedMode = !!on;
+  log(`Advanced Mode (C): ${state.advancedMode ? "ON" : "OFF"}`);
+  if (state.mode === "call") renderCallMode();
+  else renderDashboard();
+}
+
+async function tapLine(line) {
+  // Copies to clipboard so you can paste into the conversation
+  try {
+    await navigator.clipboard.writeText(line);
+    log("Copied prompt to clipboard ✅");
+  } catch {
+    log("Copy blocked by browser — press/hold to select and copy manually.");
+  }
 }
 
 /* =========================
@@ -618,10 +904,11 @@ async function copySummary() {
     await navigator.clipboard.writeText(txt);
     log("Summary copied to clipboard ✅");
   } catch {
-    log("Copy blocked by browser — manually select/copy from dashboard log.");
+    log("Copy blocked by browser — copy from screen manually if needed.");
   }
 
-  renderDashboard();
+  if (state.mode === "call") renderCallMode();
+  else renderDashboard();
 }
 
 /* =========================
@@ -673,3 +960,18 @@ window.renderDashboard = renderDashboard;
 window.renderCallMode = renderCallMode;
 window.resetDeal = resetDeal;
 window.copySummary = copySummary;
+
+// Expose toggle handlers (called from inline HTML in this app render)
+window.setVossAssist = setVossAssist;
+window.setAdvanced = setAdvanced;
+window.toggleVossOpen = toggleVossOpen;
+window.tapLine = tapLine;
+
+// Expose nav controls
+window.next = next;
+window.back = back;
+window.save = save;
+window.finish = finish;
+window.pick = pick;
+window.setPending = setPending;
+window.setTemp = setTemp;
