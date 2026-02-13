@@ -35,3 +35,64 @@ button {
 button:hover {
   background:#1f3d55;
 }
+/* NSS Wizard UI */
+.chip{
+  border: 1px solid rgba(232,238,242,0.12);
+  background: rgba(11,28,45,0.55);
+  color: rgba(232,238,242,0.9);
+  padding: 8px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.chip:hover{ background: rgba(198,169,74,0.12); }
+.chip--on{
+  border-color: rgba(198,169,74,0.65);
+  box-shadow: 0 0 0 2px rgba(198,169,74,0.12) inset;
+}
+
+.nss-input, .nss-select{
+  width: 100%;
+  max-width: 720px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(232,238,242,0.12);
+  background: rgba(11,28,45,0.55);
+  color: rgba(232,238,242,0.92);
+  outline: none;
+}
+.nss-select{ max-width: 220px; }
+
+.btn2{
+  border: 1px solid rgba(232,238,242,0.12);
+  background: rgba(11,28,45,0.55);
+  color: rgba(232,238,242,0.9);
+  padding: 9px 12px;
+  border-radius: 10px;
+  cursor:pointer;
+}
+.btn2:hover{ background: rgba(198,169,74,0.12); }
+.btn2:disabled{ opacity:0.45; cursor:not-allowed; }
+.btn2--gold{
+  border-color: rgba(198,169,74,0.65);
+  background: rgba(198,169,74,0.14);
+}
+
+.assistBox{
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(11,28,45,0.55);
+  padding: 10px;
+  border-radius: 10px;
+}
+.hint{ opacity:0.85; font-size: 13px; margin-bottom: 6px; }
+
+.monoBox{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(11,28,45,0.55);
+  padding: 10px;
+  border-radius: 10px;
+}
