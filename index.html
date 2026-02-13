@@ -1,28 +1,25 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Nautilus Sales System – Version 1</title>
-
-  <link rel="stylesheet" href="./styles.css" />
+  <meta charset="UTF-8">
+  <title>Nautilus Sales System</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
   <header class="topbar">
     <div class="brand">
       <div class="brand__title">Nautilus Sales System</div>
-      <div class="brand__sub">Version 1</div>
+      <div class="brand__sub">Rebuild</div>
     </div>
-
-    <nav class="topbar__nav">
-      <button id="dashboardBtn" class="topbtn" type="button">Dashboard</button>
-      <button id="callBtn" class="topbtn" type="button">Call Mode</button>
-    </nav>
+    <div>
+      <button onclick="renderDashboard()">Dashboard</button>
+      <button onclick="renderCallMode()">Call Mode</button>
+    </div>
   </header>
 
-  <main id="app" class="app"></main>
+  <main id="app"></main>
 
-  <script type="module" src="./app.js?v=30"></script>
+  <script src="app.js"></script>
 </body>
 </html>
