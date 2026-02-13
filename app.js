@@ -1,4 +1,4 @@
-console.log("NSS Operational: Voss-Only + Opening Script + Pre-Close + Dynamic Close + Momentum + Intel Toggle ✅");
+console.log("NSS Operational: Voss-Only + Visible Opening Script + Pre-Close + Dynamic Close + Momentum + Intel Toggle ✅");
 
 let state = {
   mode: "dashboard",
@@ -19,11 +19,11 @@ let state = {
   momentum: 40,        // per-deal reset baseline
   showIntel: false,    // toggle in Call Mode header
 
-  // UI
-  openingOpen: true,
-
   // Logs
   log: ["System ready."],
+
+  // Opener rotation
+  __lastOpener: "",
 };
 
 /* =========================
@@ -31,7 +31,7 @@ let state = {
 ========================= */
 
 const QUESTIONS = {
-  // Opening is a script block (not a question). We still keep a quick "time check" answer.
+  // Opening is displayed as a script block; we capture their response here.
   opening_time_check: q({
     section: "Opening",
     base: "Time Check",
@@ -228,7 +228,7 @@ const QUESTIONS = {
 function buildFlow() {
   const flow = [];
 
-  // Opening script is rendered in Call Mode header area; we still capture a "time check"
+  // Opening script is displayed; we capture their response on time check
   flow.push("opening_time_check");
 
   // Qualification starts
@@ -264,10 +264,8 @@ function buildFlow() {
   if (shouldAsk("compliance")) flow.push("compliance");
 
   if (shouldAsk("verification_gate")) flow.push("verification_gate");
-
   if (shouldAsk("other_commodities")) flow.push("other_commodities");
 
-  // Closing selection step
   flow.push("closing");
 
   state.flow = flow;
@@ -330,41 +328,151 @@ function adjustMomentum(delta, label) {
 }
 
 /* =========================
-   VOSS-ONLY PROMPTS (main)
+   OPENING SCRIPT (always visible)
+========================= */
+
+function openingScriptBlock() {
+  const product = getVal(state, "product") || "[product]";
+  const qty = getVal(state, "quantity") || "[quantity]";
+  const dest = getVal(state, "destination_port") || "[destination]";
+
+  const script = [
+    `Hi [Name], this is [Your Name] calling from the Commodity Resource Center. You recently submitted an inquiry for ${product} ${qty} to ${dest}.`,
+    `I’m calling to review your request and move this forward.`,
+    ``,
+    `Do you have a quick moment?`,
+    ``,
+    `Perfect. Our procurement team has reviewed your inquiry and we can fulfill this through our verified network of suppliers.`,
+    ``,
+    `To prepare your Soft Corporate Offer accurately, I just need to confirm a few details on your side. This usually only takes a few minutes.`,
+  ].join("\n");
+
+  return `
+    <div style="margin-top:12px; padding:12px; background:#132A3A; border-radius:10px; border:1px solid rgba(198,169,74,0.35);">
+      <div style="font-size:13px; opacity:0.85; margin-bottom:6px;"><b>Opening Script</b></div>
+      <div style="white-space:pre-wrap; font-size:13px; line-height:1.4;">
+        ${escapeHtml(script)}
+      </div>
+    </div>
+  `;
+}
+
+/* =========================
+   VOSS PROMPTS (no repetitive “clean”)
 ========================= */
 
 function vossPrompt(key) {
+  // Opening time check stays plain and normal
+  if (key === "opening_time_check") return "Do you have a quick moment?";
+
+  if (key === "closing") return "Select a closing that fits the temperature and keeps the relationship strong.";
+
   const temp = state.temperature;
   const risk = state.risk;
-  const soften = (temp !== "CALM");
-  const opener = soften ? "Help me understand—" : "So we don’t waste time—";
-  const tighten = (risk >= 50) ? "Just so we keep this executable—" : "";
 
-  // Special: opening_time_check is answered after your script
-  if (key === "opening_time_check") {
-    return "Do you have a quick moment?";
+  // Categorize question for better opener selection
+  const category =
+    ["company_name","country_address","website","year_established","entity_type","contact_person"].includes(key) ? "COMPANY" :
+    ["product","specs","quantity","packaging"].includes(key) ? "PRODUCT" :
+    ["incoterms","destination_port","timeline"].includes(key) ? "LOGISTICS" :
+    ["target_price","primary_instrument","secondary_instrument","issuing_bank","guarantees","docs_available"].includes(key) ? "FINANCIAL" :
+    ["authority","role","principal_disclosure","mandate"].includes(key) ? "AUTHORITY" :
+    ["loi_ready","contract_preference","compliance","verification_gate","other_commodities"].includes(key) ? "ENGAGEMENT" :
+    "GENERAL";
+
+  const tighten = (risk >= 50);
+
+  // Opener pools
+  const OPENERS = {
+    CALM: {
+      AUTHORITY: [
+        "So I route this correctly—",
+        "Just so I don’t misdirect anything—",
+        "To keep this moving smoothly—",
+        "Before we go further—",
+      ],
+      COMPANY: [
+        "Quick confirmation—",
+        "Just to confirm—",
+        "For the paperwork—",
+        "So we have it exactly right—",
+      ],
+      PRODUCT: [
+        "On the product details—",
+        "So the supplier matches your spec—",
+        "To source this correctly—",
+        "Just to align on product—",
+      ],
+      LOGISTICS: [
+        "On delivery—",
+        "So we price the right lane—",
+        "For shipping alignment—",
+        "Just to confirm logistics—",
+      ],
+      FINANCIAL: [
+        "On structure—",
+        "To keep pricing realistic—",
+        "To avoid back-and-forth later—",
+        "So we align with your terms—",
+      ],
+      ENGAGEMENT: [
+        "To keep momentum—",
+        "So we know the next step—",
+        "To avoid delays—",
+        "So your process is respected—",
+      ],
+      GENERAL: [
+        "Real quick—",
+        "One quick check—",
+        "Just to confirm—",
+        "Help me confirm—",
+      ],
+    },
+
+    // Softer openers by temperature (these replace “CALM pools”)
+    GUARDED: ["Help me understand—","Walk me through—","What’s the best way to think about—","How do you prefer we handle—"],
+    DEFENSIVE: ["So I don’t assume wrong—","Just so we’re aligned—","So there are no surprises—","I want to respect your process—"],
+    RESISTANT: ["Totally fair—help me understand—","I may be missing something—","What’s the simplest way to approach—","How would you like to proceed on—"],
+  };
+
+  function pickOpener() {
+    let pool;
+
+    if (temp === "CALM") pool = OPENERS.CALM[category] || OPENERS.CALM.GENERAL;
+    else pool = OPENERS[temp] || OPENERS.GUARDED;
+
+    const last = state.__lastOpener || "";
+    let opener = pool[Math.floor(Math.random() * pool.length)];
+    if (pool.length > 1 && opener === last) opener = pool[(pool.indexOf(opener) + 1) % pool.length];
+    state.__lastOpener = opener;
+
+    const needsTighten = tighten && (category === "FINANCIAL" || category === "AUTHORITY" || key === "verification_gate");
+    const tightenPhrase = needsTighten ? "Just so this stays executable— " : "";
+
+    return tightenPhrase + opener;
   }
 
+  const opener = pickOpener();
+
   const MAP = {
-    authority: `${opener}who should this go through on your side—are you the signer, or does it route to someone else?`,
-    role: `${opener}are you buying for end use, distributing, trading, or acting as an agent?`,
+    authority: `${opener}who approves and signs on your side—are you that person, or does it go through someone else?`,
+    role: `${opener}where do you sit in the chain—end buyer, distributor, trader, or agent?`,
 
-    company_name: `${opener}what’s the exact registered company name that should appear on the documents?`,
-    country_address: `${opener}what country is the buyer entity registered in, and what business address ties to the deal?`,
+    company_name: `${opener}what’s the exact registered company name for the documents?`,
+    country_address: `${opener}what country is the buyer registered in, and what business address should tie to the deal?`,
     contact_person: `${opener}who’s the best day-to-day contact—name, title, phone/email?`,
-
-    website: `${opener}what’s the company website (or is it N/A)?`,
+    website: `${opener}what’s the company website (or should we mark it N/A)?`,
     year_established: `${opener}what year was the company established?`,
-    entity_type: `${opener}what entity type is it (LLC, corporation, partnership, etc.)?`,
+    entity_type: `${opener}what entity type is it—LLC, corporation, partnership, etc.?`,
 
-    principal_disclosure: `${tighten}${opener}who is the principal/end buyer you represent—company name and country?`,
-    mandate: `${tighten}${opener}do you have mandate authorization to negotiate and submit LOI/ICPO for the principal?`,
+    principal_disclosure: `${opener}who is the principal/end buyer you represent—company name and country?`,
+    mandate: `${opener}do you have mandate authorization to negotiate and submit LOI/ICPO for the principal?`,
 
     core_activity: `${opener}what’s your core business activity in one sentence?`,
-    licenses: `${opener}do you currently have the import/export licensing needed for this product?`,
+    licenses: `${opener}do you have the import/export licensing needed for this product?`,
 
     product: `${opener}what exact product are we sourcing?`,
-    specs: `${opener}what specs or standards are non-negotiable for you on quality?`,
+    specs: `${opener}what specs or standards are non-negotiable for you?`,
     quantity: `${opener}what quantity are you targeting—MT or containers?`,
     packaging: `${opener}how do you want it packaged—bulk, flexitank, bottled, bagged, drums, or other?`,
 
@@ -372,73 +480,22 @@ function vossPrompt(key) {
     destination_port: `${opener}what destination port should we price to?`,
     timeline: `${opener}what timing are you working against—immediate, 30/60/90, or contract?`,
 
-    target_price: `${tighten}${opener}what target price range per MT are you aiming for?`,
-    primary_instrument: `${tighten}${opener}what primary payment instrument will you use—LC, DLC, SBLC, TT, escrow, or other?`,
+    target_price: `${opener}what target price range per MT are you aiming for?`,
+    primary_instrument: `${opener}what primary payment instrument will you use—LC, DLC, SBLC, TT, escrow, or other?`,
     secondary_instrument: `${opener}do you have a backup instrument option available if needed?`,
-    issuing_bank: `${tighten}${opener}which bank will issue the instrument (name + country) so we stay aligned from day one?`,
-
+    issuing_bank: `${opener}which bank will issue the instrument (name + country)?`,
     guarantees: `${opener}if required, are you open to escrow/performance bond/financial guarantees—or is that a hard no?`,
-    docs_available: `${opener}if requested, can you provide company profile, buyer CIS, and BCL/POF—or which of those is easiest?`,
+    docs_available: `${opener}if requested, which can you provide—company profile, buyer CIS, and/or BCL/POF?`,
 
-    loi_ready: `${tighten}${opener}once terms align, are you ready to issue LOI or ICPO on letterhead so we can move quickly?`,
+    loi_ready: `${opener}once terms align, are you ready to issue LOI or ICPO on letterhead?`,
     contract_preference: `${opener}is this spot only, long-term contract, or both?`,
-    compliance: `${opener}any regulatory or compliance requirements we should design around up front?`,
+    compliance: `${opener}any regulatory or compliance requirements we should plan around up front?`,
 
-    verification_gate: `${tighten}How do you prefer we verify capability in a way that respects your time and keeps momentum?`,
-    other_commodities: `${opener}besides this product, what other commodities are you consistently buying or selling?`,
+    verification_gate: `${opener}how do you prefer we verify capability in a way that respects your time and keeps momentum?`,
+    other_commodities: `${opener}besides this product, what other commodities are you regularly buying or selling?`,
   };
 
-  if (key === "closing") {
-    return "Select a closing that fits the temperature and keeps the relationship strong.";
-  }
-
   return MAP[key] || `${opener}what’s the simplest accurate answer on your side?`;
-}
-
-/* =========================
-   OPENING SCRIPT (collapsible)
-========================= */
-
-function openingScriptBlock() {
-  const name = getVal(state, "opening_name") || "[Name]";
-  const product = getVal(state, "product") || "[Product]";
-  const qty = getVal(state, "quantity") || "[Quantity]";
-  const dest = getVal(state, "destination_port") || "[Destination]";
-
-  // Your exact wording + time substitution
-  const script = [
-    `Hi ${name}, this is [Your Name] calling from the Commodity Resource Center.`,
-    `You recently submitted an inquiry for ${product} ${qty} to ${dest}.`,
-    `I’m calling to review your request and move this forward.`,
-    ``,
-    `Do you have a quick moment?`,
-    ``,
-    `Perfect. Our procurement team has reviewed your inquiry and we can fulfill this through our verified network of suppliers.`,
-    ``,
-    `So we don’t waste time on revisions, I’ll confirm a few details on your side to prepare your Soft Corporate Offer accurately.`,
-    `This usually only takes a few minutes.`,
-  ].join("\n");
-
-  return `
-    <div style="margin-top:12px; padding:12px; background:#132A3A; border-radius:10px; border:1px solid rgba(198,169,74,0.35);">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap;">
-        <div style="font-size:13px;"><b>Opening Script</b> <span style="opacity:0.75;">(click to copy)</span></div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button onclick="toggleOpening()">${state.openingOpen ? "Hide" : "Show"}</button>
-          <button onclick="copyLine(${JSON.stringify(script)})">Copy</button>
-        </div>
-      </div>
-
-      ${state.openingOpen ? `
-        <div style="margin-top:10px; white-space:pre-wrap; font-size:13px; line-height:1.35; opacity:0.95;">
-          ${escapeHtml(script)}
-        </div>
-        <div style="margin-top:10px; font-size:12px; opacity:0.8;">
-          Tip: As you collect answers, this script auto-fills product/qty/destination.
-        </div>
-      ` : ""}
-    </div>
-  `;
 }
 
 /* =========================
@@ -446,7 +503,6 @@ function openingScriptBlock() {
 ========================= */
 
 function isWithinLastTwoQualSteps() {
-  // Identify "closing" step index and show on the two steps right before it
   const closingIdx = state.flow.indexOf("closing");
   if (closingIdx === -1) return false;
   return state.idx >= closingIdx - 2 && state.idx < closingIdx;
@@ -456,34 +512,32 @@ function preCloseOptions() {
   const t = state.temperature;
   const r = state.risk;
 
-  // Base options by temperature (relationship-safe, Voss style)
   const base = {
     CALM: [
       { type:"commit", delta:+10, text:"If the offer reflects your pricing and instrument structure, are you comfortable issuing LOI to secure allocation?" },
       { type:"process", delta:+6, text:"Once we align terms, is there anything that would prevent this from moving forward on your side?" },
-      { type:"tighten", delta:+2, text:"What’s the best next step to keep momentum—email, WhatsApp, or a scheduled follow-up?" },
+      { type:"next", delta:+2, text:"What’s the best way to keep momentum—email, WhatsApp, or a scheduled follow-up?" },
     ],
     GUARDED: [
-      { type:"comfort", delta:+6, text:"What would make this easiest for you on your side as we move forward?" },
+      { type:"ease", delta:+6, text:"What would make this easiest for you on your side as we move forward?" },
       { type:"conditions", delta:+6, text:"What would need to be true in the offer for this to move forward internally?" },
-      { type:"clarity", delta:+2, text:"Is there anything you’d rather resolve now than after the offer is drafted?" },
+      { type:"resolve", delta:+2, text:"Is there anything you’d rather resolve now than after the offer is drafted?" },
     ],
     DEFENSIVE: [
-      { type:"trust", delta:+4, text:"What would you need to see in the offer to feel comfortable moving to LOI?" },
-      { type:"clarify", delta:+2, text:"Is there anything about banking or structure you want transparent up front?" },
-      { type:"bridge", delta:+2, text:"What’s the simplest next step that keeps this moving without pressure?" },
+      { type:"comfort", delta:+4, text:"What would you need to see in the offer to feel comfortable moving to LOI?" },
+      { type:"transparent", delta:+2, text:"Is there anything about banking or structure you want transparent up front?" },
+      { type:"step", delta:+2, text:"What’s the simplest next step that keeps this moving without pressure?" },
     ],
     RESISTANT: [
-      { type:"autonomy", delta:-1, text:"Would it make more sense to reconnect once internal timing aligns on your side?" },
+      { type:"timing", delta:+1, text:"When would be a better time to revisit this so it aligns with your process?" },
       { type:"review", delta:+1, text:"If we outline this cleanly, would you at least be open to reviewing it?" },
-      { type:"schedule", delta:+1, text:"When would be a better time to revisit this so it aligns with your process?" },
+      { type:"autonomy", delta:0, text:"Would it make more sense to reconnect once internal timing aligns on your side?" },
     ],
   }[t] || [];
 
-  // Risk overlay (tighten without sounding accusatory)
   const overlay = [];
   if (r >= 60) {
-    overlay.push({ type:"exec", delta:+2, text:"Who specifically reviews the terms internally, and what criteria do they use to approve?" });
+    overlay.push({ type:"approver", delta:+2, text:"Who specifically reviews the terms internally, and what criteria do they use to approve?" });
   }
   if (r >= 50 && !hasValue(getVal(state, "issuing_bank")) && (getVal(state, "primary_instrument") || "") !== "TT") {
     overlay.push({ type:"bank", delta:+2, text:"To keep this executable, which bank will issue the instrument on your side?" });
@@ -494,14 +548,13 @@ function preCloseOptions() {
 
 function preCloseBlock() {
   if (!isWithinLastTwoQualSteps()) return "";
-
   const opts = preCloseOptions();
   if (!opts.length) return "";
 
   return `
     <div style="margin-top:12px; padding:12px; background:rgba(11,28,45,0.55); border-radius:10px; border:1px solid rgba(198,169,74,0.22);">
       <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
-        <div style="font-size:12px; opacity:0.85;"><b>Pre-Close Intelligence</b> <span style="opacity:0.7;">(subtle • always visible here)</span></div>
+        <div style="font-size:12px; opacity:0.85;"><b>Pre-Close Intelligence</b> <span style="opacity:0.7;">(subtle)</span></div>
         ${state.showIntel ? `<div style="font-size:12px; opacity:0.75;">Temp: <b>${escapeHtml(state.temperature)}</b> • Risk: <b>${state.risk}</b> • Momentum: <b>${state.momentum}</b> (${momentumBand(state.momentum)})</div>` : ""}
       </div>
 
@@ -514,7 +567,7 @@ function preCloseBlock() {
       </div>
 
       <div style="margin-top:8px; font-size:12px; opacity:0.7;">
-        Tip: click one to copy it, and the system updates momentum automatically.
+        Click one to copy it and update momentum.
       </div>
     </div>
   `;
@@ -549,7 +602,7 @@ function closingOptions() {
 
   const overlay = [];
   if (r >= 60) {
-    overlay.push({ type:"verify", delta:+2, text:"To keep this executable, what’s the cleanest verification step you’re comfortable with first—CIS, BCL/POF, or bank introduction?" });
+    overlay.push({ type:"verify", delta:+2, text:"To keep this executable, what’s the cleanest first verification step you’re comfortable with—CIS, BCL/POF, or bank introduction?" });
   }
 
   return [...overlay, ...base].slice(0, 3);
@@ -582,7 +635,6 @@ function renderDashboard() {
   state.mode = "dashboard";
   resolvePathFromAnswers();
   buildFlow();
-
   state.risk = computeRisk(state);
 
   const app = document.getElementById("app");
@@ -624,7 +676,6 @@ function renderCallMode() {
   state.mode = "call";
   resolvePathFromAnswers();
   buildFlow();
-
   state.risk = computeRisk(state);
 
   if (state.idx >= state.flow.length) state.idx = state.flow.length - 1;
@@ -688,7 +739,6 @@ function renderCallMode() {
         </div>
 
         ${preCloseBlock()}
-
         ${key === "closing" ? closingBlock() : ""}
       </div>
 
@@ -787,6 +837,17 @@ function save() {
 function pick(key, value) {
   state.answers[key] = { value, pending: false };
   log(`Selected: ${key} = ${value}`);
+
+  // If they say "No — schedule" at opening, you can stop there (we won't force-advance)
+  if (key === "opening_time_check" && value === "No — schedule") {
+    resolvePathFromAnswers();
+    buildFlow();
+    state.risk = computeRisk(state);
+    renderCallMode();
+    return;
+  }
+
+  // Otherwise keep moving
   resolvePathFromAnswers();
   buildFlow();
   state.risk = computeRisk(state);
@@ -821,8 +882,6 @@ async function useClose(opt) {
   try { await navigator.clipboard.writeText(opt.text); } catch {}
   adjustMomentum(opt.delta, `Close: ${opt.type}`);
   log("Closing copied ✅");
-  // Move to dashboard after closing choice (optional)
-  // renderDashboard();
   renderCallMode();
 }
 
@@ -849,9 +908,9 @@ function resetDeal() {
   state.answers = {};
   state.flow = [];
   state.risk = 0;
-  state.momentum = 40; // per-deal reset (A)
-  state.openingOpen = true;
+  state.momentum = 40;
   state.log = ["New deal started."];
+  state.__lastOpener = "";
   resolvePathFromAnswers();
   buildFlow();
   renderDashboard();
@@ -859,11 +918,6 @@ function resetDeal() {
 
 function toggleIntel(on) {
   state.showIntel = !!on;
-  renderCallMode();
-}
-
-function toggleOpening() {
-  state.openingOpen = !state.openingOpen;
   renderCallMode();
 }
 
@@ -899,11 +953,6 @@ async function copySummary() {
   try { await navigator.clipboard.writeText(txt); log("Summary copied ✅"); } catch { log("Copy blocked by browser."); }
   if (state.mode === "call") renderCallMode();
   else renderDashboard();
-}
-
-async function copyLine(line) {
-  try { await navigator.clipboard.writeText(line); log("Copied ✅"); } catch { log("Copy blocked by browser."); }
-  if (state.mode === "call") renderCallMode();
 }
 
 /* =========================
@@ -955,10 +1004,7 @@ window.setTemp = setTemp;
 
 window.resetDeal = resetDeal;
 window.copySummary = copySummary;
-window.copyLine = copyLine;
 
 window.toggleIntel = toggleIntel;
-window.toggleOpening = toggleOpening;
-
 window.usePreClose = usePreClose;
 window.useClose = useClose;
