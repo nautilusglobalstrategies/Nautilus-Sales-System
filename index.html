@@ -1,10 +1,27 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Nautilus Sales System – Version 1</title>
-  </head>
-  <body style="background:#0B1C2D;color:#E8EEF2;font-family:Arial;padding:40px;">
-    <h1>Nautilus Sales System – Version 1</h1>
-    <p>If you can see this, GitHub Pages is working correctly.</p>
-  </body>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Nautilus Sales System – Version 1</title>
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand__title">Nautilus Sales System</div>
+      <div class="brand__sub">Version 1</div>
+    </div>
+    <nav>
+      <button id="dashboardBtn">Dashboard</button>
+      <button id="callBtn">Call Mode</button>
+    </nav>
+  </header>
+
+  <main id="app"></main>
+
+  <script type="module" src="./app.js"></script>
+</body>
 </html>
