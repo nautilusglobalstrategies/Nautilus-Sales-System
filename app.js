@@ -1,22 +1,15 @@
-console.log("NSS v3 — Stable Working Build ✅");
+console.log("NSS v4 — Module-safe build (no blank screen) ✅");
 
-const app = document.getElementById("app");
-const dashboardBtn = document.getElementById("dashboardBtn");
-const callBtn = document.getElementById("callBtn");
+let appEl = null;
+let dashboardBtn = null;
+let callBtn = null;
 
 let state = {
   idx: 0,
-  temperature: "CALM",
   answers: {},
-  log: ["System ready."]
 };
 
-/* ========================
-   QUESTION SET
-======================== */
-
 const QUESTIONS = [
-
   { key:"opening_time_check", section:"Opening",
     prompt:"Do you have a quick moment?",
     type:"single",
@@ -54,7 +47,7 @@ const QUESTIONS = [
 
   { key:"quantity", section:"Product",
     prompt:"What volume are you positioned to move on this transaction?",
-    type:"number", unitOptions:["MT","40ft containers","20ft containers"], placeholder:"Quantity" },
+    type:"text", placeholder:"Example: 25,000 MT" },
 
   { key:"delivery_terms", section:"Logistics",
     prompt:"Which delivery structure aligns best with your internal process?",
@@ -93,10 +86,6 @@ const QUESTIONS = [
     type:"text", placeholder:"Other commodities" }
 ];
 
-/* ========================
-   OPENING SCRIPT
-======================== */
-
 function openingScriptBlock() {
   return `
     <div style="margin-top:12px;padding:12px;background:#132A3A;border-radius:10px;">
@@ -115,99 +104,138 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   `;
 }
 
-/* ========================
-   RENDER
-======================== */
+function safeSetHTML(html) {
+  if (!appEl) return;
+  appEl.innerHTML = html;
+}
 
 function renderDashboard() {
-  state.idx = 0;
-  app.innerHTML = `
+  safeSetHTML(`
     <div style="padding:20px;">
-      <h2>Dashboard</h2>
-      <button onclick="renderCallMode()">Open Call Mode</button>
+      <h2 style="margin:0 0 12px 0;">Dashboard</h2>
+      <div style="opacity:0.8;margin-bottom:12px;">Status: Ready</div>
+      <button type="button" onclick="window.renderCallMode()">Open Call Mode</button>
     </div>
-  `;
+  `);
 }
 
 function renderCallMode() {
   const q = QUESTIONS[state.idx];
-  const answer = state.answers[q.key]?.value || "";
+  if (!q) {
+    safeSetHTML(`<div style="padding:20px;">No question found. <button onclick="window.renderDashboard()">Back</button></div>`);
+    return;
+  }
 
-  app.innerHTML = `
+  const val = state.answers[q.key]?.value || "";
+
+  safeSetHTML(`
     <div style="padding:20px;">
-      <h2>Call Mode</h2>
+      <h2 style="margin:0 0 10px 0;">Call Mode</h2>
+      <div style="opacity:0.8;">Question ${state.idx + 1} of ${QUESTIONS.length} • ${q.section}</div>
+
       ${openingScriptBlock()}
 
       <div style="margin-top:16px;padding:12px;background:#132A3A;border-radius:10px;">
-        <div style="font-size:12px;opacity:0.8;">${q.section}</div>
-        <div style="margin-top:8px;font-size:16px;"><b>${q.prompt}</b></div>
+        <div style="margin-top:2px;font-size:16px;line-height:1.35;"><b>${q.prompt}</b></div>
 
         <div style="margin-top:12px;">
-          ${renderInput(q,answer)}
+          ${renderInput(q, val)}
         </div>
 
-        <div style="margin-top:12px;">
-          <button onclick="back()" ${state.idx===0?"disabled":""}>Back</button>
-          <button onclick="next()">Next</button>
+        <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
+          <button type="button" onclick="window.back()" ${state.idx===0?"disabled":""}>Back</button>
+          <button type="button" onclick="window.next()">Next</button>
+          <button type="button" onclick="window.renderDashboard()">Dashboard</button>
         </div>
       </div>
     </div>
-  `;
+  `);
 }
 
-function renderInput(q,val) {
+function renderInput(q, val) {
   if (q.type === "text") {
-    return `<input id="field" style="width:100%;padding:8px;" placeholder="${q.placeholder||""}" value="${val}" />`;
-  }
-  if (q.type === "number") {
-    return `
-      <input id="field" style="width:60%;padding:8px;" placeholder="${q.placeholder||""}" />
-      <select id="unit">
-        ${q.unitOptions.map(u=>`<option>${u}</option>`).join("")}
-      </select>
-    `;
+    return `<input id="field" style="width:100%;padding:10px;" placeholder="${q.placeholder||""}" value="${escapeHtml(val)}" />`;
   }
   if (q.type === "single") {
     return q.options.map(opt =>
-      `<button onclick="pick('${q.key}','${opt}')">${opt}</button>`
+      `<button type="button" onclick="window.pick('${escapeJs(q.key)}','${escapeJs(opt)}')">${escapeHtml(opt)}</button>`
     ).join(" ");
+  }
+  return "";
+}
+
+function saveCurrent() {
+  const q = QUESTIONS[state.idx];
+  if (!q) return;
+
+  if (q.type === "text") {
+    const value = document.getElementById("field")?.value || "";
+    state.answers[q.key] = { value: value.trim() };
   }
 }
 
-/* ========================
-   NAVIGATION
-======================== */
-
 function next() {
-  const q = QUESTIONS[state.idx];
-  if (q.type === "text" || q.type === "number") {
-    const value = document.getElementById("field")?.value || "";
-    state.answers[q.key] = { value };
-  }
-  if (state.idx < QUESTIONS.length - 1) state.idx++;
+  saveCurrent();
+  if (state.idx < QUESTIONS.length - 1) state.idx += 1;
   renderCallMode();
 }
 
 function back() {
-  if (state.idx > 0) state.idx--;
+  saveCurrent();
+  if (state.idx > 0) state.idx -= 1;
   renderCallMode();
 }
 
-function pick(key,value) {
+function pick(key, value) {
   state.answers[key] = { value };
-  if (key==="opening_time_check" && value==="No — schedule") return;
+
+  if (key === "opening_time_check" && value === "No — schedule") {
+    // stop progression if they want to schedule
+    renderCallMode();
+    return;
+  }
   next();
 }
 
-/* ========================
-   TOP NAV BUTTONS
-======================== */
+// Helpers for safety
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+function escapeJs(str) {
+  return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+}
 
-dashboardBtn.addEventListener("click", renderDashboard);
-callBtn.addEventListener("click", renderCallMode);
+/* =========================
+   INIT (module-safe)
+========================= */
+function init() {
+  appEl = document.getElementById("app");
+  dashboardBtn = document.getElementById("dashboardBtn");
+  callBtn = document.getElementById("callBtn");
 
-/* ========================
-   INIT
-======================== */
+  // Always render *something* even if app is missing
+  if (!appEl) {
+    console.error("Missing #app element in index.html");
+    return;
+  }
 
-renderDashboard();
+  // Wire top nav if present
+  if (dashboardBtn) dashboardBtn.addEventListener("click", renderDashboard);
+  if (callBtn) callBtn.addEventListener("click", renderCallMode);
+
+  renderDashboard();
+}
+
+// Expose functions for inline onclick (required for type="module")
+window.renderDashboard = renderDashboard;
+window.renderCallMode = renderCallMode;
+window.next = next;
+window.back = back;
+window.pick = pick;
+
+document.addEventListener("DOMContentLoaded", init);
