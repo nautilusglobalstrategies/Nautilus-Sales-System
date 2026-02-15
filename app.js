@@ -1,6 +1,6 @@
-// Nautilus Sales System — V5
+// Nautilus Sales System — V6
 // Voss-Only + Temp-Driven Flow + Stabilize-until-temp-lowers
-// Non-module build: <script src="app.js?v=XX"></script>
+// Greeting is Question #1 (not a separate box)
 
 (function () {
   const TEMP_LEVELS = ["CALM", "GUARDED", "DEFENSIVE", "RESISTANT"];
@@ -16,12 +16,11 @@
     selectedSuggestion: "",
     selectedClose: "",
     adaptiveFlow: true,
-    stabilizerMode: true,
-    pendingStabilizer: false
+    stabilizerMode: true
   };
 
   /* =========================
-     GREETING + GRATITUDE
+     OPENING SCRIPT (now Q1)
   ========================== */
 
   const OPENING_SCRIPT = `
@@ -37,19 +36,20 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function gratitudeLine() {
     if (state.temperature === "RESISTANT") {
-      return "I appreciate you taking the time today. We can move at your pace and keep it straightforward.";
+      return "I appreciate your time today. We can move at your pace and keep it straightforward.";
     }
     if (state.temperature === "DEFENSIVE") {
-      return "Thank you for your time today. I’ll document this clearly, and we’ll only move forward where it makes sense for you.";
+      return "Thank you for your time today. I’ll document this clearly and only move forward where it makes sense for you.";
     }
     if (state.temperature === "GUARDED") {
-      return "Thanks for your time today. I’ll send this in a clear, reviewable format so your side can evaluate it easily.";
+      return "Thanks for your time today. I’ll send this in a clear format so your side can review it quickly.";
     }
     return "Thank you for your time today. I’ll package this into a clear Soft Corporate Offer and send it for review.";
   }
 
   /* =========================
-     QUESTION BANK (20) — Product first
+     QUESTION BANK (Greeting is first)
+     More conversational, still Voss
   ========================== */
 
   function q(key, section, prompt, placeholder) {
@@ -58,73 +58,100 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function qs(key, section, prompt, options) {
     return { key, section, prompt, type: "single", options };
   }
+  function qscript(key, section, title, scriptText) {
+    return { key, section, prompt: title, type: "script", scriptText };
+  }
 
   const QUESTION_BANK = [
-    // Product
-    q("product", "Product", "What exact product do you need sourced?", "e.g., Sunflower Seed Oil"),
-    q("specs", "Product", "What specs have to be true for this to be approved on your side?", "grade / standards / certifications"),
-    q("quantity", "Product", "What volume are you positioned to take right now without strain?", "MT or containers"),
-    qs("packaging", "Product", "What packaging keeps this smooth on your side?", ["Bulk", "Flexitank", "Bottled", "Bagged", "Drums", "Other"]),
+    // 1) Greeting / Opener (now part of flow)
+    qscript("opening_script", "Opening", "Opening Script (read verbatim)", OPENING_SCRIPT),
+
+    // Product first (as you wanted)
+    q("product", "Product", "Just to confirm, what product are you looking to source?", "e.g., Sunflower Seed Oil"),
+    q("specs", "Product", "What specs do you need us to hit so this gets approved on your side?", "grade / standards / certifications"),
+    q("quantity", "Product", "What quantity are you positioned to take right now?", "MT or containers"),
+    qs("packaging", "Product", "How do you want it packaged for the smoothest delivery?", ["Bulk", "Flexitank", "Bottled", "Bagged", "Drums", "Other"]),
 
     // Logistics
     q("destination_port", "Logistics", "Which destination port should we build the offer around?", "Port + country"),
-    qs("timeline", "Logistics", "What delivery timeline are you operating under?", ["Immediate", "Within 30 days", "Within 60 days", "Within 90 days", "Long-term contract"]),
+    qs("timeline", "Logistics", "What timeline are you working under right now?", ["Immediate", "Within 30 days", "Within 60 days", "Within 90 days", "Long-term contract"]),
 
-    // Financial
-    q("target_price", "Financial", "What target range per MT makes this commercially workable for you?", "USD/MT range"),
-    qs("payment_instrument", "Financial", "Which payment instrument are you prepared to use?", ["LC", "DLC", "SBLC", "TT", "Escrow", "Other"]),
-    q("issuing_bank", "Financial", "Which bank will issue the instrument? (name + country)", "Bank name + country"),
-    q("issuance_speed", "Financial", "Once terms are aligned, how fast can issuance happen on your side?", "e.g., 3–5 banking days"),
+    // Financial (lead them to disclose target first)
+    q("target_price", "Financial", "What target range per MT keeps this commercially workable for you?", "Example: 820–860 USD/MT"),
+    qs("payment_instrument", "Financial", "What payment instrument are you prepared to use for this deal?", ["LC", "DLC", "SBLC", "TT", "Escrow", "Other"]),
+    q("issuing_bank", "Financial", "Which bank will you be working with for the instrument? (bank name + country)", "Bank name + country"),
+    q("issuance_speed", "Financial", "Once terms line up, how quickly can issuance happen on your side?", "e.g., 3–5 banking days"),
 
     // Company
-    q("company_name", "Company", "What exact registered company name should appear on the offer package?", "Registered company name"),
-    q("entity_type", "Company", "What entity type is the buyer? (LLC, Corporation, Partnership, etc.)", "Entity type"),
-    q("country_registration_address", "Company", "What country is the buyer registered in, and what business address should we reference?", "Country + address"),
-    q("website_or_profile", "Company", "What website or company profile should we use for verification (or N/A)?", "Website or N/A"),
-    q("key_contact", "Company", "Who should receive the offer pack—name, title, phone, and email?", "Contact details"),
+    q("company_name", "Company", "What’s the exact registered company name we should put on the offer package?", "Registered company name"),
+    q("entity_type", "Company", "What type of entity is the buyer (LLC, Corporation, Partnership, etc.)?", "Entity type"),
+    q("country_registration_address", "Company", "What country is the company registered in, and what address should we reference?", "Country + business address"),
+    q("website_or_profile", "Company", "Do you have a website or company profile link we should use for verification (or N/A)?", "Website or N/A"),
+    q("key_contact", "Company", "Who should receive the offer package—name, title, phone, and email?", "Contact details"),
 
     // Engagement + Trade Finance + Compliance + Relationship
-    q("approval_path", "Engagement", "How does approval happen internally once you receive the Soft Offer?", "steps + decision owner"),
-    qs("loi_icpo_ready", "Engagement", "Once the terms work, are you ready to issue LOI or ICPO on letterhead?", ["Yes", "Needs internal approval", "Not ready"]),
-    q("trade_finance_help", "Trade Finance", "What support—if any—do you want on trade finance (issuance, guarantees), or is your bank handling everything?", "Bank handling / Need support"),
-    q("compliance_requirements", "Compliance", "What compliance or regulatory requirements do we need to design around on your side?", "Requirements"),
-    q("other_commodities", "Relationship", "In addition to this product, what other commodities are you regularly buying or selling?", "Other commodities")
+    q("approval_path", "Engagement", "When you receive the Soft Offer, how does approval usually happen on your side?", "steps + decision owner"),
+    qs("loi_icpo_ready", "Engagement", "If the terms work, are you ready to issue an LOI or ICPO on letterhead?", ["Yes", "Needs internal approval", "Not ready"]),
+    q("trade_finance_help", "Trade Finance", "Do you want support on trade finance/issuance, or is your bank handling everything?", "Bank handling / Need support"),
+    q("compliance_requirements", "Compliance", "Any compliance or regulatory requirements we should design around on your side?", "Requirements"),
+    q("other_commodities", "Relationship", "Besides this product, what other commodities are you regularly buying or selling?", "Other commodities")
   ];
 
   /* =========================
-     TEMP-DRIVEN ORDER
+     TEMP-DRIVEN ORDER (keeps greeting first)
   ========================== */
 
   function getQueue() {
-    if (!state.adaptiveFlow) return QUESTION_BANK;
+    // Always keep Greeting first
+    const greeting = QUESTION_BANK.find(x => x.key === "opening_script");
+    const rest = QUESTION_BANK.filter(x => x.key !== "opening_script");
 
-    if (state.temperature === "CALM" || state.temperature === "GUARDED") return QUESTION_BANK;
+    if (!state.adaptiveFlow) return [greeting, ...rest];
+
+    if (state.temperature === "CALM" || state.temperature === "GUARDED") {
+      return [greeting, ...rest];
+    }
 
     if (state.temperature === "DEFENSIVE") {
       const orderKeys = [
+        // product/logistics first
         "product","specs","quantity","packaging",
         "destination_port","timeline",
+
+        // company next (low-friction)
         "company_name","entity_type","country_registration_address","website_or_profile","key_contact",
-        "approval_path",
+
+        // engagement
+        "approval_path","loi_icpo_ready",
+
+        // financial later (after rapport)
         "target_price","payment_instrument","issuing_bank","issuance_speed",
-        "loi_icpo_ready","trade_finance_help","compliance_requirements","other_commodities"
+
+        // rest
+        "trade_finance_help","compliance_requirements","other_commodities"
       ];
-      return orderKeys.map(k => QUESTION_BANK.find(x => x.key === k)).filter(Boolean);
+      const ordered = orderKeys.map(k => rest.find(x => x.key === k)).filter(Boolean);
+      return [greeting, ...ordered];
     }
 
+    // RESISTANT: keep it extra gentle and “process-first”
     if (state.temperature === "RESISTANT") {
       const orderKeys = [
         "product","specs","quantity","packaging",
         "destination_port","timeline",
+
         "approval_path","key_contact","company_name","country_registration_address","website_or_profile","entity_type",
         "loi_icpo_ready",
+
         "target_price","payment_instrument","issuing_bank","issuance_speed",
+
         "trade_finance_help","compliance_requirements","other_commodities"
       ];
-      return orderKeys.map(k => QUESTION_BANK.find(x => x.key === k)).filter(Boolean);
+      const ordered = orderKeys.map(k => rest.find(x => x.key === k)).filter(Boolean);
+      return [greeting, ...ordered];
     }
 
-    return QUESTION_BANK;
+    return [greeting, ...rest];
   }
 
   function currentQuestions() {
@@ -139,58 +166,56 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     return [
       { label: "Label + Calibrate", text: "It sounds like something here doesn’t feel solid yet. What’s the biggest concern?" },
       { label: "Slow It Down", text: "That makes sense. What would you need to see in writing to feel protected?" },
-      { label: "Define the Risk", text: "What risk are you trying to avoid on this transaction?" },
-      { label: "Smallest Next Step", text: "What’s the smallest next step that would still feel safe to you?" }
+      { label: "Define the Risk", text: "What risk are you most focused on avoiding on this transaction?" },
+      { label: "Smallest Next Step", text: "What’s the smallest next step that still makes sense for you?" }
     ];
   }
 
   function vossSuggestionsFor(key) {
-    // If defensive/resistant, the system is in “stabilize-until-lowered” mode,
-    // so Voss Prompts also skew toward stabilizers.
     if ((state.temperature === "DEFENSIVE" || state.temperature === "RESISTANT") && state.stabilizerMode) {
       return vossStabilizers();
     }
 
     const S = {
       product: [
-        { label: "Mirror", text: "“[product]”—what’s driving the urgency?" },
-        { label: "Calibrate", text: "What does success look like on the first shipment?" },
-        { label: "Filter", text: "What would make you reject a supplier immediately?" }
+        { label: "Driver", text: "What’s driving the timing on this?" },
+        { label: "Success", text: "What does a ‘clean first shipment’ look like for you?" },
+        { label: "Dealbreaker", text: "What would make you reject a supplier immediately?" }
       ],
       specs: [
-        { label: "Non-Negotiables", text: "Which spec gets checked first on your side?" },
-        { label: "Origins", text: "What origins are acceptable—and which are a hard no?" },
-        { label: "Docs", text: "What documentation do your teams ask for before anything moves?" }
+        { label: "Non-negotiable", text: "Which spec is non-negotiable for approval on your side?" },
+        { label: "Origin", text: "Any origins that are a hard no?" },
+        { label: "Docs", text: "What documents do your teams expect before anything moves?" }
       ],
       quantity: [
-        { label: "Floor/Ceiling", text: "What’s the minimum that still works—and what’s the ceiling monthly?" },
-        { label: "Constraint", text: "What limits you most—storage, cashflow, or port capacity?" },
-        { label: "Scale Plan", text: "If shipment one is clean, how do you scale from there?" }
+        { label: "Range", text: "What’s the minimum that still works—and what’s the ceiling if it goes well?" },
+        { label: "Constraint", text: "What’s the main constraint—storage, cashflow, or port capacity?" },
+        { label: "Scale", text: "If shipment one is clean, how do you scale from there?" }
       ],
       packaging: [
-        { label: "Friction Test", text: "What packaging has caused problems that you want to avoid?" },
-        { label: "Decision", text: "Who decides packaging on your side?" },
-        { label: "Compliance", text: "Any labeling rules we need to respect at destination?" }
+        { label: "Friction test", text: "What packaging has caused problems before that you want to avoid?" },
+        { label: "Decision owner", text: "Who decides packaging on your side?" },
+        { label: "Compliance", text: "Any labeling rules we should follow at destination?" }
       ],
       destination_port: [
-        { label: "Reality Check", text: "Any port realities—inspection, congestion—that we should plan around?" },
-        { label: "Smooth Delivery", text: "What detail makes delivery smooth for you every time?" },
-        { label: "Routing", text: "Do you prefer direct routing, or is transshipment acceptable?" }
+        { label: "Port reality", text: "Any port realities we should plan around—inspection, congestion, timing?" },
+        { label: "Smooth delivery", text: "What detail makes delivery smooth for you every time?" },
+        { label: "Routing", text: "Do you prefer direct routing or is transshipment acceptable?" }
       ],
       timeline: [
         { label: "Priority", text: "What matters more right now—speed, price, or certainty?" },
-        { label: "Window", text: "What’s your latest acceptable arrival date?" },
+        { label: "Window", text: "What’s the latest acceptable arrival date?" },
         { label: "Impact", text: "If timing slips, what’s the impact on your side?" }
       ],
       target_price: [
-        { label: "Range Test", text: "What number makes you lean in—and what number kills it?" },
+        { label: "Edges", text: "What number makes you lean in—and what number kills it?" },
         { label: "Authority", text: "Who set that target range internally?" },
-        { label: "Flex", text: "If price lands slightly above target, what would you need to justify it?" }
+        { label: "Flex", text: "If the best offer lands a bit above target, what would you need to justify it?" }
       ],
       payment_instrument: [
         { label: "Cleanest", text: "Which instrument has been cleanest for you in real deals?" },
-        { label: "Bank Pushback", text: "What would your bank push back on if we don’t structure it right?" },
-        { label: "Driver", text: "Is your instrument choice driven by compliance, speed, or cost?" }
+        { label: "Bank friction", text: "What would your bank push back on if we don’t structure it right?" },
+        { label: "Driver", text: "Is that instrument choice driven by compliance, speed, or cost?" }
       ],
       issuing_bank: [
         { label: "Capacity", text: "Do you have current issuance capacity with that bank right now?" },
@@ -198,26 +223,26 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         { label: "Timing", text: "How quickly does the bank move once terms are set?" }
       ],
       approval_path: [
-        { label: "Decision Map", text: "Who ultimately says yes—and what do they need to see?" },
-        { label: "Sequence", text: "What’s the internal sequence after you receive the Soft Offer?" },
-        { label: "Speed", text: "What would accelerate approval on your side?" }
+        { label: "Decision map", text: "Who ultimately says yes—and what do they need to see?" },
+        { label: "Sequence", text: "After you receive the Soft Offer, what happens first on your side?" },
+        { label: "Speed", text: "What would accelerate approval internally?" }
       ],
       loi_icpo_ready: [
-        { label: "Obstacle", text: "What would prevent LOI/ICPO once the terms work?" },
-        { label: "Next Step", text: "If I send a clean Soft Offer today, what happens next on your side?" },
-        { label: "Written Clarity", text: "What needs to be clarified in writing so you don’t have to revisit it?" }
+        { label: "Obstacle", text: "What could block LOI/ICPO even if the terms work?" },
+        { label: "Next step", text: "If I send a clean Soft Offer today, what happens next on your side?" },
+        { label: "Clarity", text: "What needs to be clear in writing so you don’t have to revisit it later?" }
       ],
       other_commodities: [
-        { label: "Lane Build", text: "Which commodities are most consistent for you right now?" },
-        { label: "Buy/Sell", text: "Do you primarily buy, sell, or both?" },
-        { label: "Long-Term", text: "If we build a long-term lane, what would you want included?" }
+        { label: "Lane build", text: "Which commodities are most consistent for you right now?" },
+        { label: "Buy/sell", text: "Do you primarily buy, sell, or both?" },
+        { label: "Long-term", text: "If we build a long-term lane, what would you want included?" }
       ]
     };
 
     return (S[key] || [
-      { label: "Clarify", text: "What would you want stated clearly so it’s easy to approve?" },
+      { label: "Clarity", text: "What would you want stated clearly so this is easy to approve?" },
       { label: "Next", text: "What does the next step look like on your side?" },
-      { label: "Protect", text: "What would make this safer and simpler for you?" }
+      { label: "Protect", text: "What would make this feel safer and simpler for you?" }
     ]).slice(0, 5);
   }
 
@@ -230,27 +255,27 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
     if (t === "RESISTANT") {
       return [
-        { label: "No Pressure", text: "No pressure. What would need to change for this to become actionable?" },
-        { label: "Small Step", text: "What’s the smallest next step that still makes sense to you?" },
-        { label: "Protect", text: "What would you need to see to feel fully protected here?" }
+        { label: "No pressure", text: "No pressure. What would need to change for this to become actionable?" },
+        { label: "Small step", text: "What’s the smallest next step that still makes sense to you?" },
+        { label: "Protection", text: "What would you need to see to feel fully protected here?" }
       ];
     }
     if (t === "DEFENSIVE") {
       return [
-        { label: "De-Escalate", text: "That makes sense. What concern should we resolve first?" },
-        { label: "Written Clarity", text: "What would you want included in writing so this feels safe?" },
+        { label: "De-escalate", text: "That makes sense. What concern should we resolve first?" },
+        { label: "Written clarity", text: "What would you want included in writing so this feels safe?" },
         { label: "Control", text: "How would you like to proceed so you stay in control of the process?" }
       ];
     }
     if (t === "GUARDED") {
       return [
-        { label: "Clarity", text: "If I send the Soft Offer in a clean format, what will you look at first?" },
-        { label: "Decision", text: "Who else should be looped in so you don’t have to relay this twice?" },
-        { label: "Advance", text: "What would you need included so approval is straightforward?" }
+        { label: "Review focus", text: "If I send the Soft Offer in a clean format, what will you look at first?" },
+        { label: "Loop-in", text: "Who else should be looped in so you don’t have to relay this twice?" },
+        { label: "Approve smoothly", text: "What should we include so approval is straightforward?" }
       ];
     }
     return [
-      { label: "Pre-Close", text: "If the Soft Offer matches your terms, what happens next on your side?" },
+      { label: "Pre-close", text: "If the Soft Offer matches your terms, what happens next on your side?" },
       { label: "Routing", text: "What email should receive the offer package and supporting documents?" },
       { label: "Speed", text: "How quickly would you like to move once you receive it?" }
     ];
@@ -268,9 +293,9 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function computeScores() {
     const Q = currentQuestions();
-    const total = Q.length;
+    const total = Q.length - 1; // exclude greeting from scoring
     const answered = Object.keys(state.answers).filter(k => hasValue(state.answers[k])).length;
-    state.structural = Math.round((answered / total) * 100);
+    state.structural = Math.round((answered / Math.max(total, 1)) * 100);
 
     let r = 0;
     if (!hasValue(state.answers.target_price)) r += 18;
@@ -351,19 +376,11 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       .split{display:flex;gap:12px;flex-wrap:wrap}
       .col{flex:1;min-width:300px}
       .toggle{display:flex;gap:10px;align-items:center}
+      .scriptBox{white-space:pre-wrap;line-height:1.45;background:rgba(11,28,45,0.55);border:1px solid rgba(255,255,255,0.12);padding:12px;border-radius:10px}
     `;
     const style = document.createElement("style");
     style.textContent = css;
     document.head.appendChild(style);
-  }
-
-  function openingBlock() {
-    return `
-      <div class="card">
-        <div class="card__title">Greeting</div>
-        <div style="white-space:pre-wrap;line-height:1.45;">${esc(OPENING_SCRIPT)}</div>
-      </div>
-    `;
   }
 
   function tempBlock() {
@@ -387,7 +404,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
           </div>
         </div>
 
-        <div class="muted">Rule: DEFENSIVE/RESISTANT stays in Stabilizer mode until you lower temp to GUARDED or CALM.</div>
+        <div class="muted">Rule: DEFENSIVE/RESISTANT stays in Stabilizer until you lower temp to GUARDED or CALM.</div>
       </div>
     `;
   }
@@ -461,8 +478,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     Stabilizer logic (NEW behavior)
-     - If DEF/RES + stabilizerMode => always stay in stabilizer until temp lowered
+     Stabilizer logic
   ========================== */
 
   function shouldStabilizeNow() {
@@ -476,8 +492,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     $("app").innerHTML = `
       <div class="wrap">
         <div class="muted">Call Mode • Stabilizer Active • Temp: <b>${state.temperature}</b></div>
-
-        ${openingBlock()}
 
         <div class="card">
           <div class="card__title">Stabilizer Step (${state.temperature})</div>
@@ -498,7 +512,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
             <button class="btn" type="button" onclick="renderDashboard()">Dashboard</button>
           </div>
 
-          <div class="muted" style="margin-top:10px;">Tip: Once you feel the tone soften, tap GUARDED or CALM to continue the question flow.</div>
+          <div class="muted" style="margin-top:10px;">Tip: Once the tone softens, tap GUARDED or CALM to continue.</div>
         </div>
 
         ${tempBlock()}
@@ -553,7 +567,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function renderCallMode() {
     computeScores();
 
-    // ✅ NEW: Stabilizer takes over whenever temp is DEF/RES (until lowered)
     if (shouldStabilizeNow()) {
       renderStabilizerStep();
       return;
@@ -562,11 +575,11 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const Q = currentQuestions();
     const q = Q[state.idx];
 
+    const isScript = q.type === "script";
+
     $("app").innerHTML = `
       <div class="wrap">
         <div class="muted">Call Mode • Question <b>${state.idx + 1}</b> of <b>${Q.length}</b> • <b>${esc(q.section)}</b></div>
-
-        ${openingBlock()}
 
         <div class="card">
           <div class="row" style="justify-content:space-between;align-items:center;">
@@ -577,7 +590,15 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
           </div>
 
           <div class="q" style="margin-top:10px;">${esc(q.prompt)}</div>
-          <div style="margin-top:10px;">${inputUI(q)}</div>
+
+          ${
+            isScript
+              ? `<div class="scriptBox" style="margin-top:10px;">${esc(q.scriptText || "")}</div>
+                 <div class="row" style="margin-top:10px;">
+                   <button class="btn" type="button" onclick="copyText('${esc(q.scriptText || "")}')">Copy Opening Script</button>
+                 </div>`
+              : `<div style="margin-top:10px;">${inputUI(q)}</div>`
+          }
 
           <div class="row" style="margin-top:12px;">
             <button class="btn" type="button" onclick="backQ()" ${state.idx === 0 ? "disabled" : ""}>Back</button>
@@ -588,8 +609,13 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         </div>
 
         <div class="split">
-          <div class="col">${suggestionsBlock(q)}</div>
-          <div class="col">${tempBlock()}${closeBlock()}</div>
+          <div class="col">
+            ${isScript ? "" : suggestionsBlock(q)}
+          </div>
+          <div class="col">
+            ${tempBlock()}
+            ${closeBlock()}
+          </div>
         </div>
       </div>
     `;
@@ -607,7 +633,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const q = Q[state.idx];
     if (q && q.type === "text") saveTextIfNeeded();
 
-    // ✅ If temp is DEF/RES, stay in stabilizer (do not advance questions)
     if (shouldStabilizeNow()) {
       renderCallMode();
       return;
@@ -647,15 +672,12 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   };
 
   window.useStabilizer = function (line) {
-    // ✅ click-to-copy only; stays in stabilizer until you lower temp
     copyToClipboard(String(line || ""));
     renderCallMode();
   };
 
   window.setTemp = function (t) {
     state.temperature = t;
-
-    // If user lowered temp, resume normal question flow automatically
     renderCallMode();
   };
 
