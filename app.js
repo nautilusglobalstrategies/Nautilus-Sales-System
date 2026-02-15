@@ -1,6 +1,8 @@
-// Nautilus Sales System — V6
+// Nautilus Sales System — V7
 // Voss-Only + Temp-Driven Flow + Stabilize-until-temp-lowers
-// Greeting is Question #1 (not a separate box)
+// Greeting is Q1 AND auto-fills product/quantity/destination
+// Call Mode includes "Call Snapshot" of all answers
+// App starts in Call Mode by default
 
 (function () {
   const TEMP_LEVELS = ["CALM", "GUARDED", "DEFENSIVE", "RESISTANT"];
@@ -20,12 +22,12 @@
   };
 
   /* =========================
-     OPENING SCRIPT (now Q1)
+     OPENING SCRIPT TEMPLATE (auto-filled)
   ========================== */
 
-  const OPENING_SCRIPT = `
+  const OPENING_TEMPLATE = `
 Hi [Name], this is [Your Name] calling from the Commodity Resource Center.
-You recently submitted an inquiry for [product + quantity + destination]. I’m calling to review your request and move this forward.
+You recently submitted an inquiry for {{deal_summary}}. I’m calling to review your request and move this forward.
 
 Do you have a quick moment?
 
@@ -33,6 +35,23 @@ Perfect. Our procurement team reviewed your inquiry and we can fulfill it throug
 
 To prepare your Soft Corporate Offer accurately, I just need to confirm a few details on your side. This usually only takes a few minutes.
 `.trim();
+
+  function getAnswer(key) {
+    const v = state.answers[key];
+    if (v == null) return "";
+    return String(v).trim();
+  }
+
+  function dealSummaryText() {
+    const product = getAnswer("product") || "[product]";
+    const qty = getAnswer("quantity") || "[quantity]";
+    const dest = getAnswer("destination_port") || "[destination]";
+    return `${product} — ${qty} — ${dest}`;
+  }
+
+  function openingScriptFilled() {
+    return OPENING_TEMPLATE.replace("{{deal_summary}}", dealSummaryText());
+  }
 
   function gratitudeLine() {
     if (state.temperature === "RESISTANT") {
@@ -49,7 +68,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   /* =========================
      QUESTION BANK (Greeting is first)
-     More conversational, still Voss
   ========================== */
 
   function q(key, section, prompt, placeholder) {
@@ -58,17 +76,16 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function qs(key, section, prompt, options) {
     return { key, section, prompt, type: "single", options };
   }
-  function qscript(key, section, title, scriptText) {
-    return { key, section, prompt: title, type: "script", scriptText };
+  function qscript(key, section, title) {
+    return { key, section, prompt: title, type: "script" };
   }
 
   const QUESTION_BANK = [
-    // 1) Greeting / Opener (now part of flow)
-    qscript("opening_script", "Opening", "Opening Script (read verbatim)", OPENING_SCRIPT),
+    qscript("opening_script", "Opening", "Opening Script (read verbatim)"),
 
-    // Product first (as you wanted)
+    // Product
     q("product", "Product", "Just to confirm, what product are you looking to source?", "e.g., Sunflower Seed Oil"),
-    q("specs", "Product", "What specs do you need us to hit so this gets approved on your side?", "grade / standards / certifications"),
+    q("specs", "Product", "What specs do we need to hit so this gets approved on your side?", "grade / standards / certifications"),
     q("quantity", "Product", "What quantity are you positioned to take right now?", "MT or containers"),
     qs("packaging", "Product", "How do you want it packaged for the smoothest delivery?", ["Bulk", "Flexitank", "Bottled", "Bagged", "Drums", "Other"]),
 
@@ -76,7 +93,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     q("destination_port", "Logistics", "Which destination port should we build the offer around?", "Port + country"),
     qs("timeline", "Logistics", "What timeline are you working under right now?", ["Immediate", "Within 30 days", "Within 60 days", "Within 90 days", "Long-term contract"]),
 
-    // Financial (lead them to disclose target first)
+    // Financial
     q("target_price", "Financial", "What target range per MT keeps this commercially workable for you?", "Example: 820–860 USD/MT"),
     qs("payment_instrument", "Financial", "What payment instrument are you prepared to use for this deal?", ["LC", "DLC", "SBLC", "TT", "Escrow", "Other"]),
     q("issuing_bank", "Financial", "Which bank will you be working with for the instrument? (bank name + country)", "Bank name + country"),
@@ -102,53 +119,35 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   ========================== */
 
   function getQueue() {
-    // Always keep Greeting first
     const greeting = QUESTION_BANK.find(x => x.key === "opening_script");
     const rest = QUESTION_BANK.filter(x => x.key !== "opening_script");
 
     if (!state.adaptiveFlow) return [greeting, ...rest];
 
-    if (state.temperature === "CALM" || state.temperature === "GUARDED") {
-      return [greeting, ...rest];
-    }
+    if (state.temperature === "CALM" || state.temperature === "GUARDED") return [greeting, ...rest];
 
     if (state.temperature === "DEFENSIVE") {
       const orderKeys = [
-        // product/logistics first
         "product","specs","quantity","packaging",
         "destination_port","timeline",
-
-        // company next (low-friction)
         "company_name","entity_type","country_registration_address","website_or_profile","key_contact",
-
-        // engagement
         "approval_path","loi_icpo_ready",
-
-        // financial later (after rapport)
         "target_price","payment_instrument","issuing_bank","issuance_speed",
-
-        // rest
         "trade_finance_help","compliance_requirements","other_commodities"
       ];
-      const ordered = orderKeys.map(k => rest.find(x => x.key === k)).filter(Boolean);
-      return [greeting, ...ordered];
+      return [greeting, ...orderKeys.map(k => rest.find(x => x.key === k)).filter(Boolean)];
     }
 
-    // RESISTANT: keep it extra gentle and “process-first”
     if (state.temperature === "RESISTANT") {
       const orderKeys = [
         "product","specs","quantity","packaging",
         "destination_port","timeline",
-
         "approval_path","key_contact","company_name","country_registration_address","website_or_profile","entity_type",
         "loi_icpo_ready",
-
         "target_price","payment_instrument","issuing_bank","issuance_speed",
-
         "trade_finance_help","compliance_requirements","other_commodities"
       ];
-      const ordered = orderKeys.map(k => rest.find(x => x.key === k)).filter(Boolean);
-      return [greeting, ...ordered];
+      return [greeting, ...orderKeys.map(k => rest.find(x => x.key === k)).filter(Boolean)];
     }
 
     return [greeting, ...rest];
@@ -159,7 +158,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     VOSS STABILIZERS
+     VOSS STABILIZERS + PROMPTS
   ========================== */
 
   function vossStabilizers() {
@@ -179,8 +178,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const S = {
       product: [
         { label: "Driver", text: "What’s driving the timing on this?" },
-        { label: "Success", text: "What does a ‘clean first shipment’ look like for you?" },
-        { label: "Dealbreaker", text: "What would make you reject a supplier immediately?" }
+        { label: "Success", text: "What does a clean first shipment look like for you?" },
+        { label: "Dealbreaker", text: "What would make you walk away from a supplier immediately?" }
       ],
       specs: [
         { label: "Non-negotiable", text: "Which spec is non-negotiable for approval on your side?" },
@@ -188,53 +187,53 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         { label: "Docs", text: "What documents do your teams expect before anything moves?" }
       ],
       quantity: [
-        { label: "Range", text: "What’s the minimum that still works—and what’s the ceiling if it goes well?" },
+        { label: "Range", text: "What’s the minimum that still works—and the ceiling if it goes well?" },
         { label: "Constraint", text: "What’s the main constraint—storage, cashflow, or port capacity?" },
-        { label: "Scale", text: "If shipment one is clean, how do you scale from there?" }
+        { label: "Scale", text: "If the first shipment is clean, how do you scale from there?" }
       ],
       packaging: [
-        { label: "Friction test", text: "What packaging has caused problems before that you want to avoid?" },
-        { label: "Decision owner", text: "Who decides packaging on your side?" },
-        { label: "Compliance", text: "Any labeling rules we should follow at destination?" }
+        { label: "Friction", text: "What packaging has caused problems before that you want to avoid?" },
+        { label: "Owner", text: "Who decides packaging on your side?" },
+        { label: "Rules", text: "Any labeling rules we should follow at destination?" }
       ],
       destination_port: [
-        { label: "Port reality", text: "Any port realities we should plan around—inspection, congestion, timing?" },
-        { label: "Smooth delivery", text: "What detail makes delivery smooth for you every time?" },
+        { label: "Reality", text: "Any port realities we should plan around—inspection, congestion, timing?" },
+        { label: "Smooth", text: "What detail makes delivery smooth for you every time?" },
         { label: "Routing", text: "Do you prefer direct routing or is transshipment acceptable?" }
       ],
       timeline: [
         { label: "Priority", text: "What matters more right now—speed, price, or certainty?" },
-        { label: "Window", text: "What’s the latest acceptable arrival date?" },
+        { label: "Window", text: "What’s your latest acceptable arrival date?" },
         { label: "Impact", text: "If timing slips, what’s the impact on your side?" }
       ],
       target_price: [
         { label: "Edges", text: "What number makes you lean in—and what number kills it?" },
         { label: "Authority", text: "Who set that target range internally?" },
-        { label: "Flex", text: "If the best offer lands a bit above target, what would you need to justify it?" }
+        { label: "Flex", text: "If the best offer is a bit above target, what would you need to justify it?" }
       ],
       payment_instrument: [
         { label: "Cleanest", text: "Which instrument has been cleanest for you in real deals?" },
-        { label: "Bank friction", text: "What would your bank push back on if we don’t structure it right?" },
-        { label: "Driver", text: "Is that instrument choice driven by compliance, speed, or cost?" }
+        { label: "Friction", text: "What would your bank push back on if we don’t structure it right?" },
+        { label: "Driver", text: "Is that choice driven by compliance, speed, or cost?" }
       ],
       issuing_bank: [
         { label: "Capacity", text: "Do you have current issuance capacity with that bank right now?" },
-        { label: "Formatting", text: "Any wording/formatting requirements your bank expects from day one?" },
+        { label: "Format", text: "Any wording/formatting requirements your bank expects from day one?" },
         { label: "Timing", text: "How quickly does the bank move once terms are set?" }
       ],
       approval_path: [
-        { label: "Decision map", text: "Who ultimately says yes—and what do they need to see?" },
+        { label: "Decision", text: "Who ultimately says yes—and what do they need to see?" },
         { label: "Sequence", text: "After you receive the Soft Offer, what happens first on your side?" },
         { label: "Speed", text: "What would accelerate approval internally?" }
       ],
       loi_icpo_ready: [
         { label: "Obstacle", text: "What could block LOI/ICPO even if the terms work?" },
-        { label: "Next step", text: "If I send a clean Soft Offer today, what happens next on your side?" },
+        { label: "Next", text: "If I send a clean Soft Offer today, what happens next on your side?" },
         { label: "Clarity", text: "What needs to be clear in writing so you don’t have to revisit it later?" }
       ],
       other_commodities: [
-        { label: "Lane build", text: "Which commodities are most consistent for you right now?" },
-        { label: "Buy/sell", text: "Do you primarily buy, sell, or both?" },
+        { label: "Lane", text: "Which commodities are most consistent for you right now?" },
+        { label: "Buy/Sell", text: "Do you primarily buy, sell, or both?" },
         { label: "Long-term", text: "If we build a long-term lane, what would you want included?" }
       ]
     };
@@ -245,10 +244,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       { label: "Protect", text: "What would make this feel safer and simpler for you?" }
     ]).slice(0, 5);
   }
-
-  /* =========================
-     Closing prompts (temp-based)
-  ========================== */
 
   function closingSuggestions() {
     const t = state.temperature;
@@ -282,7 +277,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     Scoring (simple)
+     Scores
   ========================== */
 
   function hasValue(v) {
@@ -293,9 +288,10 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function computeScores() {
     const Q = currentQuestions();
-    const total = Q.length - 1; // exclude greeting from scoring
+    const total = Math.max(Q.length - 1, 1); // exclude opening script
     const answered = Object.keys(state.answers).filter(k => hasValue(state.answers[k])).length;
-    state.structural = Math.round((answered / Math.max(total, 1)) * 100);
+
+    state.structural = Math.round((answered / total) * 100);
 
     let r = 0;
     if (!hasValue(state.answers.target_price)) r += 18;
@@ -303,6 +299,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     if (!hasValue(state.answers.issuing_bank)) r += 25;
     if (!hasValue(state.answers.issuance_speed)) r += 10;
     if (!hasValue(state.answers.loi_icpo_ready)) r += 12;
+
     if (state.temperature === "DEFENSIVE") r += 10;
     if (state.temperature === "RESISTANT") r += 20;
 
@@ -357,7 +354,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function injectStyle() {
     const css = `
-      .wrap{padding:20px;max-width:980px}
+      .wrap{padding:20px;max-width:1100px}
       .muted{opacity:.85;margin:8px 0}
       .card{margin-top:12px;padding:14px;border:1px solid rgba(198,169,74,0.45);border-radius:12px;background:#132A3A}
       .card__title{font-weight:900;margin-bottom:8px}
@@ -373,10 +370,14 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       .suggest--on{outline:2px solid rgba(198,169,74,0.9)}
       .pill{display:inline-flex;gap:8px;align-items:center;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.12);background:rgba(11,28,45,0.5);color:#E8EEF2}
       .label{opacity:.8;font-size:12px;margin-bottom:6px}
-      .split{display:flex;gap:12px;flex-wrap:wrap}
-      .col{flex:1;min-width:300px}
+      .split{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+      .col{flex:1;min-width:320px}
+      .col2{flex:2;min-width:360px}
       .toggle{display:flex;gap:10px;align-items:center}
       .scriptBox{white-space:pre-wrap;line-height:1.45;background:rgba(11,28,45,0.55);border:1px solid rgba(255,255,255,0.12);padding:12px;border-radius:10px}
+      .kv{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08)}
+      .k{opacity:.8}
+      .v{font-weight:800;text-align:right}
     `;
     const style = document.createElement("style");
     style.textContent = css;
@@ -396,15 +397,15 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         <div class="row" style="margin-top:12px;">
           <div class="toggle">
             <input type="checkbox" ${state.adaptiveFlow ? "checked" : ""} onchange="toggleAdaptive(this.checked)" />
-            <span>Adaptive Flow (temp changes question order)</span>
+            <span>Adaptive Flow</span>
           </div>
           <div class="toggle">
             <input type="checkbox" ${state.stabilizerMode ? "checked" : ""} onchange="toggleStabilizer(this.checked)" />
-            <span>Stabilize-until-lowered (DEF/RES)</span>
+            <span>Stabilize-until-lowered</span>
           </div>
         </div>
 
-        <div class="muted">Rule: DEFENSIVE/RESISTANT stays in Stabilizer until you lower temp to GUARDED or CALM.</div>
+        <div class="muted">If DEFENSIVE/RESISTANT, stabilizer stays active until you lower temp.</div>
       </div>
     `;
   }
@@ -426,7 +427,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const items = vossSuggestionsFor(q.key);
     return `
       <div class="card">
-        <div class="card__title">Voss Prompts (click = copy + highlight)</div>
+        <div class="card__title">Voss Prompts (click = copy)</div>
         <div class="stack">
           ${items.map(it => `
             <button class="suggest ${state.selectedSuggestion === it.text ? "suggest--on" : ""}" type="button"
@@ -450,7 +451,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
             <div class="card__title" style="margin:0;">Closing Prompts</div>
             <button class="btn" type="button" onclick="toggleClose()">Show</button>
           </div>
-          <div class="muted">Hidden (toggle on when you want it).</div>
+          <div class="muted">Hidden.</div>
         </div>
       `;
     }
@@ -458,7 +459,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     return `
       <div class="card">
         <div class="card__title">Closing Prompts (${state.temperature})</div>
-        <div class="muted">Click to copy + highlight.</div>
+        <div class="muted">Click to copy.</div>
         <div class="stack" style="margin-top:10px;">
           ${items.map(it => `
             <button class="suggest ${state.selectedClose === it.text ? "suggest--on" : ""}" type="button"
@@ -477,8 +478,53 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     `;
   }
 
+  function callSnapshot() {
+    // Show in a logical grouping (always visible on Call Mode)
+    const rows = [
+      ["Product", dealSummaryText()],
+      ["Specs", getAnswer("specs")],
+      ["Packaging", getAnswer("packaging")],
+      ["Timeline", getAnswer("timeline")],
+      ["Target Price", getAnswer("target_price")],
+      ["Instrument", getAnswer("payment_instrument")],
+      ["Issuing Bank", getAnswer("issuing_bank")],
+      ["Issuance Speed", getAnswer("issuance_speed")],
+      ["Company Name", getAnswer("company_name")],
+      ["Entity Type", getAnswer("entity_type")],
+      ["Country + Address", getAnswer("country_registration_address")],
+      ["Website/Profile", getAnswer("website_or_profile")],
+      ["Key Contact", getAnswer("key_contact")],
+      ["Approval Path", getAnswer("approval_path")],
+      ["LOI/ICPO Ready", getAnswer("loi_icpo_ready")],
+      ["Trade Finance Help", getAnswer("trade_finance_help")],
+      ["Compliance", getAnswer("compliance_requirements")],
+      ["Other Commodities", getAnswer("other_commodities")]
+    ];
+
+    return `
+      <div class="card">
+        <div class="card__title">Call Snapshot</div>
+        <div class="muted">Live summary of buyer answers.</div>
+        <div style="margin-top:8px;">
+          ${rows.map(([k, v]) => `
+            <div class="kv">
+              <div class="k">${esc(k)}</div>
+              <div class="v">${esc(v || "—")}</div>
+            </div>
+          `).join("")}
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <button class="btn" type="button" onclick="copySnapshot()">Copy Snapshot</button>
+          <button class="btn" type="button" onclick="resetDeal()">Start New Deal</button>
+          <button class="btn" type="button" onclick="toggleClose()">${state.showClose ? "Hide" : "Show"} Closings</button>
+        </div>
+      </div>
+    `;
+  }
+
   /* =========================
-     Stabilizer logic
+     Stabilizer mode (stays until lowered)
   ========================== */
 
   function shouldStabilizeNow() {
@@ -491,65 +537,98 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
     $("app").innerHTML = `
       <div class="wrap">
-        <div class="muted">Call Mode • Stabilizer Active • Temp: <b>${state.temperature}</b></div>
+        <div class="muted">Stabilizer Active • Temp: <b>${state.temperature}</b></div>
 
-        <div class="card">
-          <div class="card__title">Stabilizer Step (${state.temperature})</div>
-          <div class="muted">Pick a line to stabilize (click-to-copy). You’ll stay here until you lower temperature.</div>
+        <div class="split">
+          <div class="col2">
+            <div class="card">
+              <div class="card__title">Stabilizer Step (${state.temperature})</div>
+              <div class="muted">Pick a line to stabilize (click-to-copy). You’ll stay here until you lower temperature.</div>
 
-          <div class="stack" style="margin-top:10px;">
-            ${items.map(it => `
-              <button class="suggest" type="button" onclick="useStabilizer('${esc(it.text)}')">
-                <div class="label">${esc(it.label)}</div>
-                <div>${esc(it.text)}</div>
-              </button>
-            `).join("")}
+              <div class="stack" style="margin-top:10px;">
+                ${items.map(it => `
+                  <button class="suggest" type="button" onclick="useStabilizer('${esc(it.text)}')">
+                    <div class="label">${esc(it.label)}</div>
+                    <div>${esc(it.text)}</div>
+                  </button>
+                `).join("")}
+              </div>
+
+              <div class="row" style="margin-top:12px;">
+                <button class="btn" type="button" onclick="setTemp('GUARDED')">✅ Set Temp → GUARDED (resume)</button>
+                <button class="btn" type="button" onclick="setTemp('CALM')">✅ Set Temp → CALM (resume)</button>
+              </div>
+            </div>
+
+            ${tempBlock()}
+            ${closeBlock()}
           </div>
 
-          <div class="row" style="margin-top:12px;">
-            <button class="btn" type="button" onclick="setTemp('GUARDED')">✅ Set Temp → GUARDED (resume)</button>
-            <button class="btn" type="button" onclick="setTemp('CALM')">✅ Set Temp → CALM (resume)</button>
-            <button class="btn" type="button" onclick="renderDashboard()">Dashboard</button>
+          <div class="col">
+            ${callSnapshot()}
           </div>
-
-          <div class="muted" style="margin-top:10px;">Tip: Once the tone softens, tap GUARDED or CALM to continue.</div>
         </div>
-
-        ${tempBlock()}
       </div>
     `;
   }
 
-  function renderDashboard() {
+  /* =========================
+     Navigation: Call Mode is primary
+  ========================== */
+
+  function renderCallMode() {
     computeScores();
+
+    if (shouldStabilizeNow()) {
+      renderStabilizerStep();
+      return;
+    }
+
     const Q = currentQuestions();
-    const list = Q.map((x, i) => `<div class="muted">${i + 1}. <b>${esc(x.key)}</b> — ${esc(x.section)}</div>`).join("");
+    const q = Q[state.idx];
+    const isScript = q.type === "script";
+
+    const scriptText = openingScriptFilled();
 
     $("app").innerHTML = `
       <div class="wrap">
-        <div class="card">
-          <div class="card__title">Dashboard</div>
-          <div class="muted"><b>${Q.length}</b> Questions Loaded • Starts with: <b>${esc(Q[0].key)}</b></div>
+        <div class="muted">Question <b>${state.idx + 1}</b> of <b>${Q.length}</b> • <b>${esc(q.section)}</b></div>
 
-          <div class="row" style="margin-top:10px;">
-            <div class="pill">Phase: <b>${state.phase}</b></div>
-            <div class="pill">Structural: <b>${state.structural}</b>/100</div>
-            <div class="pill">Risk: <b>${state.risk}</b>/100</div>
-            <div class="pill">Temp: <b>${state.temperature}</b></div>
+        <div class="split">
+          <div class="col2">
+            <div class="card">
+              <div class="row" style="justify-content:space-between;align-items:center;">
+                <div class="pill">Phase: <b>${state.phase}</b></div>
+                <div class="pill">Structural: <b>${state.structural}</b>/100</div>
+                <div class="pill">Risk: <b>${state.risk}</b>/100</div>
+                <div class="pill">Temp: <b>${state.temperature}</b></div>
+              </div>
+
+              <div class="q" style="margin-top:10px;">${esc(q.prompt)}</div>
+
+              ${
+                isScript
+                  ? `<div class="scriptBox" style="margin-top:10px;">${esc(scriptText)}</div>
+                     <div class="row" style="margin-top:10px;">
+                       <button class="btn" type="button" onclick="copyText('${esc(scriptText)}')">Copy Opening Script</button>
+                     </div>`
+                  : `<div style="margin-top:10px;">${inputUI(q)}</div>`
+              }
+
+              <div class="row" style="margin-top:12px;">
+                <button class="btn" type="button" onclick="backQ()" ${state.idx === 0 ? "disabled" : ""}>Back</button>
+                <button class="btn" type="button" onclick="nextQ()">Next</button>
+              </div>
+            </div>
+
+            ${isScript ? "" : suggestionsBlock(q)}
+            ${tempBlock()}
+            ${closeBlock()}
           </div>
 
-          <div class="row" style="margin-top:12px;">
-            <button class="btn" type="button" onclick="renderCallMode()">Open Call Mode</button>
-            <button class="btn" type="button" onclick="resetDeal()">Start New Deal</button>
-            <button class="btn" type="button" onclick="toggleClose()">${state.showClose ? "Hide" : "Show"} Closing Suggestions</button>
+          <div class="col">
+            ${callSnapshot()}
           </div>
-        </div>
-
-        ${tempBlock()}
-
-        <div class="card">
-          <div class="card__title">Question List (verification)</div>
-          ${list}
         </div>
       </div>
     `;
@@ -564,68 +643,45 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     state.answers[q.key] = v;
   }
 
-  function renderCallMode() {
-    computeScores();
-
-    if (shouldStabilizeNow()) {
-      renderStabilizerStep();
-      return;
+  function snapshotText() {
+    const lines = [];
+    lines.push("Nautilus Sales System — Call Snapshot");
+    lines.push(`Temp: ${state.temperature} | Phase: ${state.phase} | Structural: ${state.structural}/100 | Risk: ${state.risk}/100`);
+    lines.push("");
+    lines.push(`Deal: ${dealSummaryText()}`);
+    lines.push("");
+    const fields = [
+      ["Specs", "specs"],
+      ["Packaging", "packaging"],
+      ["Timeline", "timeline"],
+      ["Target Price", "target_price"],
+      ["Payment Instrument", "payment_instrument"],
+      ["Issuing Bank", "issuing_bank"],
+      ["Issuance Speed", "issuance_speed"],
+      ["Company Name", "company_name"],
+      ["Entity Type", "entity_type"],
+      ["Country + Address", "country_registration_address"],
+      ["Website/Profile", "website_or_profile"],
+      ["Key Contact", "key_contact"],
+      ["Approval Path", "approval_path"],
+      ["LOI/ICPO Ready", "loi_icpo_ready"],
+      ["Trade Finance Help", "trade_finance_help"],
+      ["Compliance Requirements", "compliance_requirements"],
+      ["Other Commodities", "other_commodities"]
+    ];
+    for (const [label, key] of fields) {
+      const v = getAnswer(key) || "—";
+      lines.push(`${label}: ${v}`);
     }
-
-    const Q = currentQuestions();
-    const q = Q[state.idx];
-
-    const isScript = q.type === "script";
-
-    $("app").innerHTML = `
-      <div class="wrap">
-        <div class="muted">Call Mode • Question <b>${state.idx + 1}</b> of <b>${Q.length}</b> • <b>${esc(q.section)}</b></div>
-
-        <div class="card">
-          <div class="row" style="justify-content:space-between;align-items:center;">
-            <div class="pill">Phase: <b>${state.phase}</b></div>
-            <div class="pill">Structural: <b>${state.structural}</b>/100</div>
-            <div class="pill">Risk: <b>${state.risk}</b>/100</div>
-            <div class="pill">Temp: <b>${state.temperature}</b></div>
-          </div>
-
-          <div class="q" style="margin-top:10px;">${esc(q.prompt)}</div>
-
-          ${
-            isScript
-              ? `<div class="scriptBox" style="margin-top:10px;">${esc(q.scriptText || "")}</div>
-                 <div class="row" style="margin-top:10px;">
-                   <button class="btn" type="button" onclick="copyText('${esc(q.scriptText || "")}')">Copy Opening Script</button>
-                 </div>`
-              : `<div style="margin-top:10px;">${inputUI(q)}</div>`
-          }
-
-          <div class="row" style="margin-top:12px;">
-            <button class="btn" type="button" onclick="backQ()" ${state.idx === 0 ? "disabled" : ""}>Back</button>
-            <button class="btn" type="button" onclick="nextQ()">Next</button>
-            <button class="btn" type="button" onclick="renderDashboard()">Dashboard</button>
-            <button class="btn" type="button" onclick="resetDeal()">Start New Deal</button>
-          </div>
-        </div>
-
-        <div class="split">
-          <div class="col">
-            ${isScript ? "" : suggestionsBlock(q)}
-          </div>
-          <div class="col">
-            ${tempBlock()}
-            ${closeBlock()}
-          </div>
-        </div>
-      </div>
-    `;
+    lines.push("");
+    lines.push(`Gratitude: ${gratitudeLine()}`);
+    return lines.join("\n");
   }
 
   /* =========================
      GLOBAL ACTIONS
   ========================== */
 
-  window.renderDashboard = renderDashboard;
   window.renderCallMode = renderCallMode;
 
   window.nextQ = function () {
@@ -685,12 +741,12 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     state.adaptiveFlow = !!checked;
     const Q = currentQuestions();
     if (state.idx > Q.length - 1) state.idx = Q.length - 1;
-    renderDashboard();
+    renderCallMode();
   };
 
   window.toggleStabilizer = function (checked) {
     state.stabilizerMode = !!checked;
-    renderDashboard();
+    renderCallMode();
   };
 
   window.pickClose = function (line) {
@@ -709,16 +765,22 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     copyToClipboard(String(t || ""));
   };
 
+  window.copySnapshot = function () {
+    computeScores();
+    copyToClipboard(snapshotText());
+    alert("Copied: Call Snapshot ✅");
+  };
+
   window.resetDeal = function () {
     state.idx = 0;
     state.answers = {};
     state.temperature = "CALM";
     state.selectedSuggestion = "";
     state.selectedClose = "";
-    renderDashboard();
+    renderCallMode();
   };
 
   // init
   injectStyle();
-  renderDashboard();
+  renderCallMode(); // ✅ start in Call Mode by default
 })();
