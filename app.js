@@ -1,8 +1,6 @@
-// Nautilus Sales System — V7
-// Voss-Only + Temp-Driven Flow + Stabilize-until-temp-lowers
-// Greeting is Q1 AND auto-fills product/quantity/destination
-// Call Mode includes "Call Snapshot" of all answers
-// App starts in Call Mode by default
+// Nautilus Sales System — V8
+// Dashboard: Import Excel/CSV call list + map columns + pick lead
+// Call Mode: auto-prefills lead info + Voss flow + Stabilizer + HubSpot copy note
 
 (function () {
   const TEMP_LEVELS = ["CALM", "GUARDED", "DEFENSIVE", "RESISTANT"];
@@ -10,23 +8,59 @@
   const state = {
     idx: 0,
     temperature: "CALM",
-    answers: {},
+    answers: {},            // deal answers
+    lead: null,             // selected lead from call list
+    leads: [],              // imported leads list
+    mapping: {},            // column mapping
     structural: 0,
     risk: 0,
     phase: "QUALIFY",
     showClose: true,
-    selectedSuggestion: "",
-    selectedClose: "",
     adaptiveFlow: true,
-    stabilizerMode: true
+    stabilizerMode: true,
+    selectedSuggestion: "",
+    selectedClose: ""
   };
 
   /* =========================
-     OPENING SCRIPT TEMPLATE (auto-filled)
+     STORAGE (persists leads + last lead)
+  ========================== */
+  const LS_KEYS = {
+    leads: "nss_leads_v1",
+    leadId: "nss_selected_lead_id_v1",
+    answers: "nss_answers_v1"
+  };
+
+  function loadPersisted() {
+    try {
+      const leads = JSON.parse(localStorage.getItem(LS_KEYS.leads) || "[]");
+      if (Array.isArray(leads)) state.leads = leads;
+
+      const answers = JSON.parse(localStorage.getItem(LS_KEYS.answers) || "{}");
+      if (answers && typeof answers === "object") state.answers = answers;
+
+      const leadId = localStorage.getItem(LS_KEYS.leadId);
+      if (leadId && state.leads.length) {
+        const found = state.leads.find(x => String(x.id) === String(leadId));
+        if (found) state.lead = found;
+      }
+    } catch (e) {}
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(LS_KEYS.leads, JSON.stringify(state.leads || []));
+      localStorage.setItem(LS_KEYS.answers, JSON.stringify(state.answers || {}));
+      localStorage.setItem(LS_KEYS.leadId, state.lead ? String(state.lead.id) : "");
+    } catch (e) {}
+  }
+
+  /* =========================
+     OPENING SCRIPT (auto-filled)
   ========================== */
 
   const OPENING_TEMPLATE = `
-Hi [Name], this is [Your Name] calling from the Commodity Resource Center.
+Hi {{name}}, this is [Your Name] calling from the Commodity Resource Center.
 You recently submitted an inquiry for {{deal_summary}}. I’m calling to review your request and move this forward.
 
 Do you have a quick moment?
@@ -36,77 +70,66 @@ Perfect. Our procurement team reviewed your inquiry and we can fulfill it throug
 To prepare your Soft Corporate Offer accurately, I just need to confirm a few details on your side. This usually only takes a few minutes.
 `.trim();
 
-  function getAnswer(key) {
-    const v = state.answers[key];
-    if (v == null) return "";
-    return String(v).trim();
-  }
+  function safe(v) { return String(v ?? "").trim(); }
+
+  function getLeadField(k) { return state.lead ? safe(state.lead[k]) : ""; }
+  function getAnswer(k) { return safe(state.answers[k]); }
 
   function dealSummaryText() {
-    const product = getAnswer("product") || "[product]";
-    const qty = getAnswer("quantity") || "[quantity]";
-    const dest = getAnswer("destination_port") || "[destination]";
+    const product = getAnswer("product") || getLeadField("product") || "[product]";
+    const qty = getAnswer("quantity") || getLeadField("quantity") || "[quantity]";
+    const dest = getAnswer("destination_port") || getLeadField("destination_port") || getLeadField("country") || "[destination]";
     return `${product} — ${qty} — ${dest}`;
   }
 
+  function greetingName() {
+    return getLeadField("name") || "[Name]";
+  }
+
   function openingScriptFilled() {
-    return OPENING_TEMPLATE.replace("{{deal_summary}}", dealSummaryText());
+    return OPENING_TEMPLATE
+      .replace("{{name}}", greetingName())
+      .replace("{{deal_summary}}", dealSummaryText());
   }
 
   function gratitudeLine() {
-    if (state.temperature === "RESISTANT") {
-      return "I appreciate your time today. We can move at your pace and keep it straightforward.";
-    }
-    if (state.temperature === "DEFENSIVE") {
-      return "Thank you for your time today. I’ll document this clearly and only move forward where it makes sense for you.";
-    }
-    if (state.temperature === "GUARDED") {
-      return "Thanks for your time today. I’ll send this in a clear format so your side can review it quickly.";
-    }
+    if (state.temperature === "RESISTANT") return "I appreciate your time today. We can move at your pace and keep it straightforward.";
+    if (state.temperature === "DEFENSIVE") return "Thank you for your time today. I’ll document this clearly and only move forward where it makes sense for you.";
+    if (state.temperature === "GUARDED") return "Thanks for your time today. I’ll send this in a clear format so your side can review it quickly.";
     return "Thank you for your time today. I’ll package this into a clear Soft Corporate Offer and send it for review.";
   }
 
   /* =========================
-     QUESTION BANK (Greeting is first)
+     QUESTION BANK (Greeting first)
+     Product-first flow
   ========================== */
 
-  function q(key, section, prompt, placeholder) {
-    return { key, section, prompt, type: "text", placeholder };
-  }
-  function qs(key, section, prompt, options) {
-    return { key, section, prompt, type: "single", options };
-  }
-  function qscript(key, section, title) {
-    return { key, section, prompt: title, type: "script" };
-  }
+  function q(key, section, prompt, placeholder) { return { key, section, prompt, type: "text", placeholder }; }
+  function qs(key, section, prompt, options) { return { key, section, prompt, type: "single", options }; }
+  function qscript(key, section, title) { return { key, section, prompt: title, type: "script" }; }
 
   const QUESTION_BANK = [
     qscript("opening_script", "Opening", "Opening Script (read verbatim)"),
 
-    // Product
     q("product", "Product", "Just to confirm, what product are you looking to source?", "e.g., Sunflower Seed Oil"),
     q("specs", "Product", "What specs do we need to hit so this gets approved on your side?", "grade / standards / certifications"),
     q("quantity", "Product", "What quantity are you positioned to take right now?", "MT or containers"),
     qs("packaging", "Product", "How do you want it packaged for the smoothest delivery?", ["Bulk", "Flexitank", "Bottled", "Bagged", "Drums", "Other"]),
 
-    // Logistics
     q("destination_port", "Logistics", "Which destination port should we build the offer around?", "Port + country"),
     qs("timeline", "Logistics", "What timeline are you working under right now?", ["Immediate", "Within 30 days", "Within 60 days", "Within 90 days", "Long-term contract"]),
 
-    // Financial
     q("target_price", "Financial", "What target range per MT keeps this commercially workable for you?", "Example: 820–860 USD/MT"),
     qs("payment_instrument", "Financial", "What payment instrument are you prepared to use for this deal?", ["LC", "DLC", "SBLC", "TT", "Escrow", "Other"]),
     q("issuing_bank", "Financial", "Which bank will you be working with for the instrument? (bank name + country)", "Bank name + country"),
     q("issuance_speed", "Financial", "Once terms line up, how quickly can issuance happen on your side?", "e.g., 3–5 banking days"),
 
-    // Company
     q("company_name", "Company", "What’s the exact registered company name we should put on the offer package?", "Registered company name"),
     q("entity_type", "Company", "What type of entity is the buyer (LLC, Corporation, Partnership, etc.)?", "Entity type"),
     q("country_registration_address", "Company", "What country is the company registered in, and what address should we reference?", "Country + business address"),
     q("website_or_profile", "Company", "Do you have a website or company profile link we should use for verification (or N/A)?", "Website or N/A"),
     q("key_contact", "Company", "Who should receive the offer package—name, title, phone, and email?", "Contact details"),
 
-    // Engagement + Trade Finance + Compliance + Relationship
     q("approval_path", "Engagement", "When you receive the Soft Offer, how does approval usually happen on your side?", "steps + decision owner"),
     qs("loi_icpo_ready", "Engagement", "If the terms work, are you ready to issue an LOI or ICPO on letterhead?", ["Yes", "Needs internal approval", "Not ready"]),
     q("trade_finance_help", "Trade Finance", "Do you want support on trade finance/issuance, or is your bank handling everything?", "Bank handling / Need support"),
@@ -115,7 +138,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   ];
 
   /* =========================
-     TEMP-DRIVEN ORDER (keeps greeting first)
+     TEMP-DRIVEN ORDER (Greeting stays first)
   ========================== */
 
   function getQueue() {
@@ -153,20 +176,18 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     return [greeting, ...rest];
   }
 
-  function currentQuestions() {
-    return getQueue();
-  }
+  function currentQuestions() { return getQueue(); }
 
   /* =========================
-     VOSS STABILIZERS + PROMPTS
+     VOSS STABILIZERS + PROMPTS (kept short + non-repetitive)
   ========================== */
 
   function vossStabilizers() {
     return [
       { label: "Label + Calibrate", text: "It sounds like something here doesn’t feel solid yet. What’s the biggest concern?" },
       { label: "Slow It Down", text: "That makes sense. What would you need to see in writing to feel protected?" },
-      { label: "Define the Risk", text: "What risk are you most focused on avoiding on this transaction?" },
-      { label: "Smallest Next Step", text: "What’s the smallest next step that still makes sense for you?" }
+      { label: "Define Risk", text: "What risk are you most focused on avoiding on this transaction?" },
+      { label: "Small Step", text: "What’s the smallest next step that still makes sense for you?" }
     ];
   }
 
@@ -181,60 +202,25 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         { label: "Success", text: "What does a clean first shipment look like for you?" },
         { label: "Dealbreaker", text: "What would make you walk away from a supplier immediately?" }
       ],
-      specs: [
-        { label: "Non-negotiable", text: "Which spec is non-negotiable for approval on your side?" },
-        { label: "Origin", text: "Any origins that are a hard no?" },
-        { label: "Docs", text: "What documents do your teams expect before anything moves?" }
-      ],
-      quantity: [
-        { label: "Range", text: "What’s the minimum that still works—and the ceiling if it goes well?" },
-        { label: "Constraint", text: "What’s the main constraint—storage, cashflow, or port capacity?" },
-        { label: "Scale", text: "If the first shipment is clean, how do you scale from there?" }
-      ],
-      packaging: [
-        { label: "Friction", text: "What packaging has caused problems before that you want to avoid?" },
-        { label: "Owner", text: "Who decides packaging on your side?" },
-        { label: "Rules", text: "Any labeling rules we should follow at destination?" }
-      ],
-      destination_port: [
-        { label: "Reality", text: "Any port realities we should plan around—inspection, congestion, timing?" },
-        { label: "Smooth", text: "What detail makes delivery smooth for you every time?" },
-        { label: "Routing", text: "Do you prefer direct routing or is transshipment acceptable?" }
-      ],
-      timeline: [
-        { label: "Priority", text: "What matters more right now—speed, price, or certainty?" },
-        { label: "Window", text: "What’s your latest acceptable arrival date?" },
-        { label: "Impact", text: "If timing slips, what’s the impact on your side?" }
-      ],
       target_price: [
         { label: "Edges", text: "What number makes you lean in—and what number kills it?" },
         { label: "Authority", text: "Who set that target range internally?" },
-        { label: "Flex", text: "If the best offer is a bit above target, what would you need to justify it?" }
+        { label: "Flex", text: "If the best offer lands a bit above target, what would you need to justify it?" }
       ],
       payment_instrument: [
         { label: "Cleanest", text: "Which instrument has been cleanest for you in real deals?" },
         { label: "Friction", text: "What would your bank push back on if we don’t structure it right?" },
-        { label: "Driver", text: "Is that choice driven by compliance, speed, or cost?" }
+        { label: "Driver", text: "Is that instrument choice driven by compliance, speed, or cost?" }
       ],
       issuing_bank: [
-        { label: "Capacity", text: "Do you have current issuance capacity with that bank right now?" },
-        { label: "Format", text: "Any wording/formatting requirements your bank expects from day one?" },
+        { label: "Capacity", text: "Do you have issuance capacity with that bank right now?" },
+        { label: "Format", text: "Any wording/formatting your bank expects from day one?" },
         { label: "Timing", text: "How quickly does the bank move once terms are set?" }
       ],
       approval_path: [
-        { label: "Decision", text: "Who ultimately says yes—and what do they need to see?" },
+        { label: "Decision Map", text: "Who ultimately says yes—and what do they need to see?" },
         { label: "Sequence", text: "After you receive the Soft Offer, what happens first on your side?" },
         { label: "Speed", text: "What would accelerate approval internally?" }
-      ],
-      loi_icpo_ready: [
-        { label: "Obstacle", text: "What could block LOI/ICPO even if the terms work?" },
-        { label: "Next", text: "If I send a clean Soft Offer today, what happens next on your side?" },
-        { label: "Clarity", text: "What needs to be clear in writing so you don’t have to revisit it later?" }
-      ],
-      other_commodities: [
-        { label: "Lane", text: "Which commodities are most consistent for you right now?" },
-        { label: "Buy/Sell", text: "Do you primarily buy, sell, or both?" },
-        { label: "Long-term", text: "If we build a long-term lane, what would you want included?" }
       ]
     };
 
@@ -242,7 +228,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       { label: "Clarity", text: "What would you want stated clearly so this is easy to approve?" },
       { label: "Next", text: "What does the next step look like on your side?" },
       { label: "Protect", text: "What would make this feel safer and simpler for you?" }
-    ]).slice(0, 5);
+    ]).slice(0, 4);
   }
 
   function closingSuggestions() {
@@ -250,34 +236,34 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
     if (t === "RESISTANT") {
       return [
-        { label: "No pressure", text: "No pressure. What would need to change for this to become actionable?" },
-        { label: "Small step", text: "What’s the smallest next step that still makes sense to you?" },
+        { label: "No Pressure", text: "No pressure. What would need to change for this to become actionable?" },
+        { label: "Small Step", text: "What’s the smallest next step that still makes sense to you?" },
         { label: "Protection", text: "What would you need to see to feel fully protected here?" }
       ];
     }
     if (t === "DEFENSIVE") {
       return [
-        { label: "De-escalate", text: "That makes sense. What concern should we resolve first?" },
-        { label: "Written clarity", text: "What would you want included in writing so this feels safe?" },
-        { label: "Control", text: "How would you like to proceed so you stay in control of the process?" }
+        { label: "Resolve First", text: "That makes sense. What concern should we resolve first?" },
+        { label: "In Writing", text: "What would you want included in writing so this feels safe?" },
+        { label: "Stay In Control", text: "How would you like to proceed so you stay in control of the process?" }
       ];
     }
     if (t === "GUARDED") {
       return [
-        { label: "Review focus", text: "If I send the Soft Offer in a clean format, what will you look at first?" },
-        { label: "Loop-in", text: "Who else should be looped in so you don’t have to relay this twice?" },
-        { label: "Approve smoothly", text: "What should we include so approval is straightforward?" }
+        { label: "Review Focus", text: "If I send the Soft Offer cleanly, what will you look at first?" },
+        { label: "Loop In", text: "Who else should be looped in so you don’t have to relay this twice?" },
+        { label: "Approve Smoothly", text: "What should we include so approval is straightforward?" }
       ];
     }
     return [
-      { label: "Pre-close", text: "If the Soft Offer matches your terms, what happens next on your side?" },
+      { label: "Pre-Close", text: "If the Soft Offer matches your terms, what happens next on your side?" },
       { label: "Routing", text: "What email should receive the offer package and supporting documents?" },
       { label: "Speed", text: "How quickly would you like to move once you receive it?" }
     ];
   }
 
   /* =========================
-     Scores
+     Scoring
   ========================== */
 
   function hasValue(v) {
@@ -288,13 +274,13 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function computeScores() {
     const Q = currentQuestions();
-    const total = Math.max(Q.length - 1, 1); // exclude opening script
+    const total = Math.max(Q.length - 1, 1); // exclude opening
     const answered = Object.keys(state.answers).filter(k => hasValue(state.answers[k])).length;
 
     state.structural = Math.round((answered / total) * 100);
 
     let r = 0;
-    if (!hasValue(state.answers.target_price)) r += 18;
+    if (!hasValue(state.answers.target_price) && !hasValue(getLeadField("target_price"))) r += 18;
     if (!hasValue(state.answers.payment_instrument)) r += 25;
     if (!hasValue(state.answers.issuing_bank)) r += 25;
     if (!hasValue(state.answers.issuance_speed)) r += 10;
@@ -338,7 +324,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     UI
+     UI Helpers
   ========================== */
 
   const $ = (id) => document.getElementById(id);
@@ -354,7 +340,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function injectStyle() {
     const css = `
-      .wrap{padding:20px;max-width:1100px}
+      .wrap{padding:20px;max-width:1200px}
       .muted{opacity:.85;margin:8px 0}
       .card{margin-top:12px;padding:14px;border:1px solid rgba(198,169,74,0.45);border-radius:12px;background:#132A3A}
       .card__title{font-weight:900;margin-bottom:8px}
@@ -367,22 +353,72 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       .chip--on{outline:2px solid rgba(198,169,74,0.9)}
       .input{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#0B1C2D;color:#E8EEF2}
       .suggest{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(11,28,45,0.7);color:#E8EEF2;text-align:left;cursor:pointer}
-      .suggest--on{outline:2px solid rgba(198,169,74,0.9)}
       .pill{display:inline-flex;gap:8px;align-items:center;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.12);background:rgba(11,28,45,0.5);color:#E8EEF2}
       .label{opacity:.8;font-size:12px;margin-bottom:6px}
       .split{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
       .col{flex:1;min-width:320px}
-      .col2{flex:2;min-width:360px}
+      .col2{flex:2;min-width:420px}
       .toggle{display:flex;gap:10px;align-items:center}
       .scriptBox{white-space:pre-wrap;line-height:1.45;background:rgba(11,28,45,0.55);border:1px solid rgba(255,255,255,0.12);padding:12px;border-radius:10px}
       .kv{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08)}
       .k{opacity:.8}
       .v{font-weight:800;text-align:right}
+      table{width:100%;border-collapse:collapse}
+      th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;vertical-align:top}
+      th{opacity:.85}
+      .small{font-size:12px;opacity:.8}
     `;
     const style = document.createElement("style");
     style.textContent = css;
     document.head.appendChild(style);
   }
+
+  /* =========================
+     Stabilizer Mode
+  ========================== */
+
+  function shouldStabilizeNow() {
+    if (!state.stabilizerMode) return false;
+    return (state.temperature === "DEFENSIVE" || state.temperature === "RESISTANT");
+  }
+
+  function renderStabilizerStep() {
+    const items = vossStabilizers();
+    $("app").innerHTML = `
+      <div class="wrap">
+        <div class="muted">Stabilizer Active • Temp: <b>${state.temperature}</b></div>
+        <div class="split">
+          <div class="col2">
+            <div class="card">
+              <div class="card__title">Stabilizer Step (${state.temperature})</div>
+              <div class="muted">Pick a line (click-to-copy). You’ll stay here until you lower temperature.</div>
+              <div class="stack" style="margin-top:10px;">
+                ${items.map(it => `
+                  <button class="suggest" type="button" onclick="useStabilizer('${esc(it.text)}')">
+                    <div class="label">${esc(it.label)}</div>
+                    <div>${esc(it.text)}</div>
+                  </button>
+                `).join("")}
+              </div>
+              <div class="row" style="margin-top:12px;">
+                <button class="btn" type="button" onclick="setTemp('GUARDED')">✅ Set Temp → GUARDED (resume)</button>
+                <button class="btn" type="button" onclick="setTemp('CALM')">✅ Set Temp → CALM (resume)</button>
+              </div>
+            </div>
+            ${tempBlock()}
+            ${closeBlock()}
+          </div>
+          <div class="col">
+            ${callSnapshot()}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /* =========================
+     Blocks
+  ========================== */
 
   function tempBlock() {
     return `
@@ -404,23 +440,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
             <span>Stabilize-until-lowered</span>
           </div>
         </div>
-
-        <div class="muted">If DEFENSIVE/RESISTANT, stabilizer stays active until you lower temp.</div>
       </div>
     `;
-  }
-
-  function inputUI(q) {
-    const existing = state.answers[q.key] || "";
-    if (q.type === "text") {
-      return `<input id="field" class="input" placeholder="${esc(q.placeholder || "")}" value="${esc(existing)}" />`;
-    }
-    if (q.type === "single") {
-      return `<div class="row">${q.options.map(opt => `
-        <button class="chip" type="button" onclick="pickOption('${esc(opt)}')">${esc(opt)}</button>
-      `).join("")}</div>`;
-    }
-    return "";
   }
 
   function suggestionsBlock(q) {
@@ -430,8 +451,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         <div class="card__title">Voss Prompts (click = copy)</div>
         <div class="stack">
           ${items.map(it => `
-            <button class="suggest ${state.selectedSuggestion === it.text ? "suggest--on" : ""}" type="button"
-              onclick="pickSuggestion('${esc(it.text)}')">
+            <button class="suggest" type="button" onclick="pickSuggestion('${esc(it.text)}')">
               <div class="label">${esc(it.label)}</div>
               <div>${esc(it.text)}</div>
             </button>
@@ -459,11 +479,9 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     return `
       <div class="card">
         <div class="card__title">Closing Prompts (${state.temperature})</div>
-        <div class="muted">Click to copy.</div>
         <div class="stack" style="margin-top:10px;">
           ${items.map(it => `
-            <button class="suggest ${state.selectedClose === it.text ? "suggest--on" : ""}" type="button"
-              onclick="pickClose('${esc(it.text)}')">
+            <button class="suggest" type="button" onclick="pickClose('${esc(it.text)}')">
               <div class="label">${esc(it.label)}</div>
               <div>${esc(it.text)}</div>
             </button>
@@ -478,103 +496,328 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     `;
   }
 
-  function callSnapshot() {
-    // Show in a logical grouping (always visible on Call Mode)
+  function callSnapshotRows() {
+    const lead = state.lead || {};
     const rows = [
-      ["Product", dealSummaryText()],
-      ["Specs", getAnswer("specs")],
-      ["Packaging", getAnswer("packaging")],
-      ["Timeline", getAnswer("timeline")],
-      ["Target Price", getAnswer("target_price")],
-      ["Instrument", getAnswer("payment_instrument")],
-      ["Issuing Bank", getAnswer("issuing_bank")],
-      ["Issuance Speed", getAnswer("issuance_speed")],
-      ["Company Name", getAnswer("company_name")],
-      ["Entity Type", getAnswer("entity_type")],
-      ["Country + Address", getAnswer("country_registration_address")],
-      ["Website/Profile", getAnswer("website_or_profile")],
-      ["Key Contact", getAnswer("key_contact")],
-      ["Approval Path", getAnswer("approval_path")],
-      ["LOI/ICPO Ready", getAnswer("loi_icpo_ready")],
-      ["Trade Finance Help", getAnswer("trade_finance_help")],
-      ["Compliance", getAnswer("compliance_requirements")],
-      ["Other Commodities", getAnswer("other_commodities")]
+      ["Lead Name", lead.name || "—"],
+      ["Company", lead.company_name || "—"],
+      ["Country", lead.country || "—"],
+      ["Phone", lead.phone || "—"],
+      ["Email", lead.email || "—"],
+      ["Deal", dealSummaryText()],
+      ["Target Price", getAnswer("target_price") || lead.target_price || "—"],
+      ["Packaging/Container", getAnswer("packaging") || lead.packaging || lead.container || "—"],
+      ["Payment Instrument", getAnswer("payment_instrument") || "—"],
+      ["Issuing Bank", getAnswer("issuing_bank") || "—"],
+      ["LOI/ICPO Ready", getAnswer("loi_icpo_ready") || "—"]
     ];
+    return rows;
+  }
 
+  function callSnapshot() {
+    const rows = callSnapshotRows();
     return `
       <div class="card">
         <div class="card__title">Call Snapshot</div>
-        <div class="muted">Live summary of buyer answers.</div>
+        <div class="muted">Live summary (lead + answers).</div>
         <div style="margin-top:8px;">
           ${rows.map(([k, v]) => `
             <div class="kv">
               <div class="k">${esc(k)}</div>
-              <div class="v">${esc(v || "—")}</div>
+              <div class="v">${esc(v)}</div>
             </div>
           `).join("")}
         </div>
 
         <div class="row" style="margin-top:12px;">
+          <button class="btn" type="button" onclick="copyHubspotNote()">Copy HubSpot Note</button>
           <button class="btn" type="button" onclick="copySnapshot()">Copy Snapshot</button>
           <button class="btn" type="button" onclick="resetDeal()">Start New Deal</button>
-          <button class="btn" type="button" onclick="toggleClose()">${state.showClose ? "Hide" : "Show"} Closings</button>
         </div>
       </div>
     `;
   }
 
   /* =========================
-     Stabilizer mode (stays until lowered)
+     Dashboard: Import + Map + Select Lead
   ========================== */
 
-  function shouldStabilizeNow() {
-    if (!state.stabilizerMode) return false;
-    return (state.temperature === "DEFENSIVE" || state.temperature === "RESISTANT");
-  }
+  const MAP_FIELDS = [
+    { key: "name", label: "Name" },
+    { key: "company_name", label: "Company Name" },
+    { key: "country", label: "Country" },
+    { key: "phone", label: "Phone / WhatsApp" },
+    { key: "email", label: "Email" },
+    { key: "product", label: "Product" },
+    { key: "quantity", label: "Quantity" },
+    { key: "destination_port", label: "Destination / Port" },
+    { key: "target_price", label: "Target Price (USD/MT)" },
+    { key: "packaging", label: "Container / Packaging" }
+  ];
 
-  function renderStabilizerStep() {
-    const items = vossStabilizers();
+  function renderDashboard() {
+    computeScores();
 
     $("app").innerHTML = `
       <div class="wrap">
-        <div class="muted">Stabilizer Active • Temp: <b>${state.temperature}</b></div>
+        <div class="card">
+          <div class="card__title">Dashboard</div>
+          <div class="muted">Import your call list (Excel or CSV), map the columns, then click a lead to load Call Mode.</div>
 
-        <div class="split">
-          <div class="col2">
-            <div class="card">
-              <div class="card__title">Stabilizer Step (${state.temperature})</div>
-              <div class="muted">Pick a line to stabilize (click-to-copy). You’ll stay here until you lower temperature.</div>
-
-              <div class="stack" style="margin-top:10px;">
-                ${items.map(it => `
-                  <button class="suggest" type="button" onclick="useStabilizer('${esc(it.text)}')">
-                    <div class="label">${esc(it.label)}</div>
-                    <div>${esc(it.text)}</div>
-                  </button>
-                `).join("")}
-              </div>
-
-              <div class="row" style="margin-top:12px;">
-                <button class="btn" type="button" onclick="setTemp('GUARDED')">✅ Set Temp → GUARDED (resume)</button>
-                <button class="btn" type="button" onclick="setTemp('CALM')">✅ Set Temp → CALM (resume)</button>
-              </div>
-            </div>
-
-            ${tempBlock()}
-            ${closeBlock()}
+          <div class="row" style="margin-top:10px;">
+            <input id="fileInput" class="input" type="file" accept=".xlsx,.xls,.csv" />
+            <button class="btn" type="button" onclick="importFile()">Import</button>
+            <button class="btn" type="button" onclick="clearLeads()">Clear Call List</button>
+            <button class="btn" type="button" onclick="renderCallMode()">Go to Call Mode</button>
           </div>
 
-          <div class="col">
-            ${callSnapshot()}
+          <div class="small" style="margin-top:8px;">
+            Tip: If your headers don’t match our fields, use the Column Mapper after import.
+          </div>
+        </div>
+
+        ${state._rawHeaders ? renderMapper() : ""}
+
+        ${renderLeadTable()}
+
+        <div class="card">
+          <div class="card__title">Current Selection</div>
+          <div class="muted">${state.lead ? `Loaded: <b>${esc(state.lead.name || "—")}</b> (${esc(state.lead.company_name || "—")})` : "No lead selected yet."}</div>
+          <div class="row" style="margin-top:10px;">
+            <button class="btn" type="button" onclick="renderCallMode()" ${state.lead ? "" : "disabled"}>Open Call Mode with Selected Lead</button>
+            <button class="btn" type="button" onclick="prefillFromLead()" ${state.lead ? "" : "disabled"}>Prefill Answers from Lead</button>
           </div>
         </div>
       </div>
     `;
   }
 
+  function renderMapper() {
+    const headers = state._rawHeaders || [];
+    const options = [`<option value="">-- not provided --</option>`].concat(headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`)).join("");
+
+    return `
+      <div class="card">
+        <div class="card__title">Column Mapper</div>
+        <div class="muted">Match your spreadsheet headers to our fields. Then click “Apply Mapping”.</div>
+
+        <div style="margin-top:10px;">
+          ${MAP_FIELDS.map(f => `
+            <div class="kv">
+              <div class="k">${esc(f.label)}</div>
+              <div class="v" style="width:55%;text-align:left;">
+                <select class="input" style="width:100%;" id="map_${esc(f.key)}">
+                  ${options}
+                </select>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <button class="btn" type="button" onclick="applyMapping()">Apply Mapping</button>
+          <button class="btn" type="button" onclick="hideMapping()">Hide Mapper</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderLeadTable() {
+    const leads = state.leads || [];
+    if (!leads.length) {
+      return `
+        <div class="card">
+          <div class="card__title">Call List</div>
+          <div class="muted">No call list loaded yet. Import an Excel/CSV above.</div>
+        </div>
+      `;
+    }
+
+    const rows = leads.slice(0, 200).map(l => `
+      <tr>
+        <td><button class="btn" type="button" onclick="selectLead('${esc(String(l.id))}')">Select</button></td>
+        <td>${esc(l.name || "—")}</td>
+        <td>${esc(l.company_name || "—")}</td>
+        <td>${esc(l.country || "—")}</td>
+        <td>${esc(l.product || "—")}</td>
+        <td>${esc(l.quantity || "—")}</td>
+        <td>${esc(l.destination_port || "—")}</td>
+        <td>${esc(l.phone || "—")}</td>
+        <td>${esc(l.email || "—")}</td>
+      </tr>
+    `).join("");
+
+    return `
+      <div class="card">
+        <div class="card__title">Call List (first 200 shown)</div>
+        <div class="muted">Click Select → then open Call Mode.</div>
+        <div style="overflow:auto;margin-top:10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th><th>Name</th><th>Company</th><th>Country</th><th>Product</th><th>Qty</th><th>Destination</th><th>Phone</th><th>Email</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
   /* =========================
-     Navigation: Call Mode is primary
+     Import Excel/CSV
   ========================== */
+
+  function importFile() {
+    const input = document.getElementById("fileInput");
+    if (!input || !input.files || !input.files[0]) {
+      alert("Choose an Excel (.xlsx) or CSV file first.");
+      return;
+    }
+
+    const file = input.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function (e) {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array" });
+        const firstSheet = wb.SheetNames[0];
+        const ws = wb.Sheets[firstSheet];
+
+        // read rows as array-of-objects using first row headers
+        const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (!json.length) {
+          alert("No rows found in that file.");
+          return;
+        }
+
+        // capture headers for mapping UI
+        const headers = Object.keys(json[0] || {});
+        state._rawHeaders = headers;
+
+        // store raw rows temporarily for mapping conversion
+        state._rawRows = json;
+
+        alert(`Imported ${json.length} rows. Now map columns (Column Mapper) and click Apply Mapping.`);
+        persist();
+        renderDashboard();
+      } catch (err) {
+        alert("Import failed. Try saving the sheet as .xlsx or .csv and import again.");
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
+
+  function applyMapping() {
+    const headers = state._rawHeaders || [];
+    const rows = state._rawRows || [];
+    if (!headers.length || !rows.length) {
+      alert("Import a file first.");
+      return;
+    }
+
+    const mapping = {};
+    for (const f of MAP_FIELDS) {
+      const sel = document.getElementById("map_" + f.key);
+      mapping[f.key] = sel ? sel.value : "";
+    }
+    state.mapping = mapping;
+
+    // build leads array
+    const leads = rows.map((r, idx) => {
+      const lead = { id: String(Date.now()) + "_" + idx };
+
+      for (const f of MAP_FIELDS) {
+        const col = mapping[f.key];
+        lead[f.key] = col ? safe(r[col]) : "";
+      }
+
+      return lead;
+    });
+
+    state.leads = leads;
+    // auto-select first lead if none
+    if (!state.lead && leads.length) state.lead = leads[0];
+
+    // cleanup raw temp
+    delete state._rawHeaders;
+    delete state._rawRows;
+
+    persist();
+    alert("Mapping applied. Call list is ready.");
+    renderDashboard();
+  }
+
+  function hideMapping() {
+    delete state._rawHeaders;
+    delete state._rawRows;
+    renderDashboard();
+  }
+
+  function clearLeads() {
+    if (!confirm("Clear the entire call list?")) return;
+    state.leads = [];
+    state.lead = null;
+    persist();
+    renderDashboard();
+  }
+
+  function selectLead(id) {
+    const found = (state.leads || []).find(x => String(x.id) === String(id));
+    if (!found) return;
+    state.lead = found;
+    persist();
+    renderDashboard();
+  }
+
+  function prefillFromLead() {
+    if (!state.lead) return;
+
+    // Prefill deal answers from lead (does not overwrite if you already typed something)
+    const lead = state.lead;
+    const maybeSet = (k, v) => {
+      if (!hasValue(state.answers[k]) && hasValue(v)) state.answers[k] = v;
+    };
+
+    maybeSet("product", lead.product);
+    maybeSet("quantity", lead.quantity);
+    maybeSet("destination_port", lead.destination_port);
+    maybeSet("target_price", lead.target_price);
+    maybeSet("packaging", lead.packaging);
+
+    persist();
+    alert("Prefilled deal answers from lead (where blank).");
+    renderDashboard();
+  }
+
+  /* =========================
+     Call Mode
+  ========================== */
+
+  function inputUI(q) {
+    const existing = state.answers[q.key] || "";
+    if (q.type === "text") {
+      return `<input id="field" class="input" placeholder="${esc(q.placeholder || "")}" value="${esc(existing)}" />`;
+    }
+    if (q.type === "single") {
+      return `<div class="row">${q.options.map(opt => `
+        <button class="chip" type="button" onclick="pickOption('${esc(opt)}')">${esc(opt)}</button>
+      `).join("")}</div>`;
+    }
+    return "";
+  }
+
+  function saveTextIfNeeded() {
+    const Q = currentQuestions();
+    const q = Q[state.idx];
+    if (!q || q.type !== "text") return;
+    const v = document.getElementById("field") ? document.getElementById("field").value.trim() : "";
+    state.answers[q.key] = v;
+    persist();
+  }
 
   function renderCallMode() {
     computeScores();
@@ -587,12 +830,13 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const Q = currentQuestions();
     const q = Q[state.idx];
     const isScript = q.type === "script";
-
     const scriptText = openingScriptFilled();
 
     $("app").innerHTML = `
       <div class="wrap">
-        <div class="muted">Question <b>${state.idx + 1}</b> of <b>${Q.length}</b> • <b>${esc(q.section)}</b></div>
+        <div class="muted">
+          ${state.lead ? `Lead: <b>${esc(state.lead.name || "—")}</b> • ${esc(state.lead.company_name || "—")}` : "No lead selected — open Dashboard to select/import."}
+        </div>
 
         <div class="split">
           <div class="col2">
@@ -603,6 +847,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
                 <div class="pill">Risk: <b>${state.risk}</b>/100</div>
                 <div class="pill">Temp: <b>${state.temperature}</b></div>
               </div>
+
+              <div class="muted" style="margin-top:8px;">Question <b>${state.idx + 1}</b> of <b>${Q.length}</b> • <b>${esc(q.section)}</b></div>
 
               <div class="q" style="margin-top:10px;">${esc(q.prompt)}</div>
 
@@ -618,6 +864,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
               <div class="row" style="margin-top:12px;">
                 <button class="btn" type="button" onclick="backQ()" ${state.idx === 0 ? "disabled" : ""}>Back</button>
                 <button class="btn" type="button" onclick="nextQ()">Next</button>
+                <button class="btn" type="button" onclick="renderDashboard()">Dashboard</button>
+                <button class="btn" type="button" onclick="prefillFromLead()" ${state.lead ? "" : "disabled"}>Prefill from Lead</button>
               </div>
             </div>
 
@@ -634,67 +882,78 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     `;
   }
 
-  function saveTextIfNeeded() {
-    const Q = currentQuestions();
-    const q = Q[state.idx];
-    if (!q) return;
-    if (q.type !== "text") return;
-    const v = $("field") ? $("field").value.trim() : "";
-    state.answers[q.key] = v;
-  }
+  /* =========================
+     HubSpot copy outputs
+  ========================== */
 
-  function snapshotText() {
+  function hubspotNoteText() {
+    const lead = state.lead || {};
     const lines = [];
-    lines.push("Nautilus Sales System — Call Snapshot");
+    lines.push(`CALL NOTE — Nautilus / IBEX Intake`);
+    lines.push(`Name: ${lead.name || "—"} | Company: ${lead.company_name || "—"} | Country: ${lead.country || "—"}`);
+    lines.push(`Phone: ${lead.phone || "—"} | Email: ${lead.email || "—"}`);
     lines.push(`Temp: ${state.temperature} | Phase: ${state.phase} | Structural: ${state.structural}/100 | Risk: ${state.risk}/100`);
     lines.push("");
-    lines.push(`Deal: ${dealSummaryText()}`);
+
+    lines.push(`Inquiry / Deal Summary: ${dealSummaryText()}`);
+    lines.push(`Specs: ${getAnswer("specs") || "—"}`);
+    lines.push(`Packaging/Container: ${getAnswer("packaging") || lead.packaging || lead.container || "—"}`);
+    lines.push(`Timeline: ${getAnswer("timeline") || "—"}`);
     lines.push("");
-    const fields = [
-      ["Specs", "specs"],
-      ["Packaging", "packaging"],
-      ["Timeline", "timeline"],
-      ["Target Price", "target_price"],
-      ["Payment Instrument", "payment_instrument"],
-      ["Issuing Bank", "issuing_bank"],
-      ["Issuance Speed", "issuance_speed"],
-      ["Company Name", "company_name"],
-      ["Entity Type", "entity_type"],
-      ["Country + Address", "country_registration_address"],
-      ["Website/Profile", "website_or_profile"],
-      ["Key Contact", "key_contact"],
-      ["Approval Path", "approval_path"],
-      ["LOI/ICPO Ready", "loi_icpo_ready"],
-      ["Trade Finance Help", "trade_finance_help"],
-      ["Compliance Requirements", "compliance_requirements"],
-      ["Other Commodities", "other_commodities"]
-    ];
-    for (const [label, key] of fields) {
-      const v = getAnswer(key) || "—";
-      lines.push(`${label}: ${v}`);
-    }
+
+    lines.push(`Target Price (USD/MT): ${getAnswer("target_price") || lead.target_price || "—"}`);
+    lines.push(`Payment Instrument: ${getAnswer("payment_instrument") || "—"}`);
+    lines.push(`Issuing Bank: ${getAnswer("issuing_bank") || "—"}`);
+    lines.push(`Issuance Speed: ${getAnswer("issuance_speed") || "—"}`);
     lines.push("");
+
+    lines.push(`LOI/ICPO Readiness: ${getAnswer("loi_icpo_ready") || "—"}`);
+    lines.push(`Approval Path: ${getAnswer("approval_path") || "—"}`);
+    lines.push(`Trade Finance Help Needed: ${getAnswer("trade_finance_help") || "—"}`);
+    lines.push(`Compliance Notes: ${getAnswer("compliance_requirements") || "—"}`);
+    lines.push("");
+
+    lines.push(`Other Commodities: ${getAnswer("other_commodities") || "—"}`);
+    lines.push("");
+    lines.push(`Close / Next Step Prompt Used: ${state.selectedClose || "—"}`);
     lines.push(`Gratitude: ${gratitudeLine()}`);
+
     return lines.join("\n");
   }
 
+  function snapshotText() {
+    const lead = state.lead || {};
+    return [
+      `Snapshot — ${lead.name || "—"} (${lead.company_name || "—"})`,
+      `Deal: ${dealSummaryText()}`,
+      `Target: ${getAnswer("target_price") || lead.target_price || "—"}`,
+      `Temp: ${state.temperature} | Phase: ${state.phase} | Risk: ${state.risk}/100`,
+    ].join("\n");
+  }
+
   /* =========================
-     GLOBAL ACTIONS
+     Global Actions
   ========================== */
 
+  window.renderDashboard = renderDashboard;
   window.renderCallMode = renderCallMode;
+
+  window.importFile = importFile;
+  window.applyMapping = applyMapping;
+  window.hideMapping = hideMapping;
+  window.clearLeads = clearLeads;
+  window.selectLead = selectLead;
+  window.prefillFromLead = prefillFromLead;
 
   window.nextQ = function () {
     const Q = currentQuestions();
     const q = Q[state.idx];
     if (q && q.type === "text") saveTextIfNeeded();
 
-    if (shouldStabilizeNow()) {
-      renderCallMode();
-      return;
-    }
+    if (shouldStabilizeNow()) { renderCallMode(); return; }
 
     if (state.idx < Q.length - 1) state.idx += 1;
+    persist();
     renderCallMode();
   };
 
@@ -703,6 +962,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const q = Q[state.idx];
     if (q && q.type === "text") saveTextIfNeeded();
     if (state.idx > 0) state.idx -= 1;
+    persist();
     renderCallMode();
   };
 
@@ -710,11 +970,9 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const Q = currentQuestions();
     const q = Q[state.idx];
     state.answers[q.key] = opt;
+    persist();
 
-    if (shouldStabilizeNow()) {
-      renderCallMode();
-      return;
-    }
+    if (shouldStabilizeNow()) { renderCallMode(); return; }
 
     if (state.idx < Q.length - 1) state.idx += 1;
     renderCallMode();
@@ -724,28 +982,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const txt = String(line || "");
     state.selectedSuggestion = txt;
     copyToClipboard(txt);
-    renderCallMode();
-  };
-
-  window.useStabilizer = function (line) {
-    copyToClipboard(String(line || ""));
-    renderCallMode();
-  };
-
-  window.setTemp = function (t) {
-    state.temperature = t;
-    renderCallMode();
-  };
-
-  window.toggleAdaptive = function (checked) {
-    state.adaptiveFlow = !!checked;
-    const Q = currentQuestions();
-    if (state.idx > Q.length - 1) state.idx = Q.length - 1;
-    renderCallMode();
-  };
-
-  window.toggleStabilizer = function (checked) {
-    state.stabilizerMode = !!checked;
+    persist();
     renderCallMode();
   };
 
@@ -753,23 +990,36 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const txt = String(line || "");
     state.selectedClose = txt;
     copyToClipboard(txt);
+    persist();
     renderCallMode();
   };
 
-  window.toggleClose = function () {
-    state.showClose = !state.showClose;
-    renderCallMode();
-  };
-
-  window.copyText = function (t) {
-    copyToClipboard(String(t || ""));
-  };
+  window.copyText = function (t) { copyToClipboard(String(t || "")); };
 
   window.copySnapshot = function () {
     computeScores();
     copyToClipboard(snapshotText());
-    alert("Copied: Call Snapshot ✅");
+    alert("Copied: Snapshot ✅");
   };
+
+  window.copyHubspotNote = function () {
+    computeScores();
+    copyToClipboard(hubspotNoteText());
+    alert("Copied: HubSpot Note ✅");
+  };
+
+  window.useStabilizer = function (line) {
+    copyToClipboard(String(line || ""));
+    renderCallMode();
+  };
+
+  window.setTemp = function (t) { state.temperature = t; persist(); renderCallMode(); };
+
+  window.toggleAdaptive = function (checked) { state.adaptiveFlow = !!checked; persist(); renderCallMode(); };
+
+  window.toggleStabilizer = function (checked) { state.stabilizerMode = !!checked; persist(); renderCallMode(); };
+
+  window.toggleClose = function () { state.showClose = !state.showClose; persist(); renderCallMode(); };
 
   window.resetDeal = function () {
     state.idx = 0;
@@ -777,10 +1027,15 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     state.temperature = "CALM";
     state.selectedSuggestion = "";
     state.selectedClose = "";
+    persist();
     renderCallMode();
   };
 
-  // init
+  /* =========================
+     INIT
+  ========================== */
+
   injectStyle();
-  renderCallMode(); // ✅ start in Call Mode by default
+  loadPersisted();
+  renderDashboard(); // start on dashboard so you can import/select calls quickly
 })();
