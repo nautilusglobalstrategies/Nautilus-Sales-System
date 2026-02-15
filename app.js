@@ -1,7 +1,7 @@
-// Nautilus Sales System — V13 (Autosave Everything + Snapshot Top Next to Questions)
-// Dashboard: Quick Load / Import+Map / Select Lead
-// Call Mode: Snapshot panel sits next to Questions at TOP
-// Autosave: text fields + notes autosave on every keystroke; option picks autosave on click
+// Nautilus Sales System — V14
+// Fixes:
+// 1) Layout: Closing Prompts directly under Questions; Temp under Closing Prompts
+// 2) Start New Deal: advances to NEXT lead in list (wraps to top) + resets answers
 
 (function () {
   const TEMP_LEVELS = ["CALM", "GUARDED", "DEFENSIVE", "RESISTANT"];
@@ -10,7 +10,7 @@
   const state = {
     idx: 0,
     temperature: "CALM",
-    answers: {},            // deal answers incl. call_notes
+    answers: {},
     lead: null,
     leads: [],
     mapping: {},
@@ -193,7 +193,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function currentQuestions() { return getQueue(); }
 
   /* =========================
-     VOSS PROMPTS (short + varied)
+     VOSS PROMPTS
   ========================== */
   function vossStabilizers() {
     return [
@@ -286,7 +286,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function computeScores() {
     const Q = currentQuestions();
-    const total = Math.max(Q.length - 1, 1); // exclude opening
+    const total = Math.max(Q.length - 1, 1);
     const answered = Object.keys(state.answers).filter(k => k !== NOTES_KEY && hasValue(state.answers[k])).length;
     state.structural = Math.round((answered / total) * 100);
 
@@ -384,14 +384,12 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     Autosave Everything
+     Autosave
   ========================== */
   function autosaveAnswer(key, value) {
     if (!key) return;
     state.answers[key] = String(value ?? "");
     persist();
-    // keep the top bars current without re-rendering the whole page while typing
-    // (scores will be refreshed on any button click / render)
   }
 
   /* =========================
@@ -425,8 +423,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
                 <button class="btn" type="button" onclick="setTemp('CALM')">✅ Set Temp → CALM (resume)</button>
               </div>
             </div>
-            ${tempBlock()}
             ${closeBlock()}
+            ${tempBlock()}
           </div>
           <div class="col">
             ${callSnapshot()}
@@ -539,6 +537,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function callSnapshot() {
     const rows = callSnapshotRows();
+    const leadCount = (state.leads || []).length;
+    const leadPos = state.lead ? ((state.leads || []).findIndex(x => String(x.id) === String(state.lead.id)) + 1) : 0;
 
     return `
       <div class="card">
@@ -573,14 +573,19 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         <div class="row" style="margin-top:12px;">
           <button class="btn" type="button" onclick="copyHubspotNote()">Copy HubSpot Note</button>
           <button class="btn" type="button" onclick="copySnapshot()">Copy Snapshot</button>
-          <button class="btn" type="button" onclick="resetDeal()">Start New Deal</button>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn" type="button" onclick="startNextDeal()">
+            Start New Deal ${leadCount ? `(${leadPos}/${leadCount})` : ""}
+          </button>
         </div>
       </div>
     `;
   }
 
   /* =========================
-     Dashboard: Import + Map + Select Lead
+     Dashboard (kept as-is; not needed for your requested changes)
   ========================== */
   const MAP_FIELDS = [
     { key: "name", label: "Name" },
@@ -714,7 +719,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     Import Excel/CSV
+     Import Excel/CSV (same as before)
   ========================== */
   function requireXLSX() {
     if (typeof XLSX === "undefined") {
@@ -949,7 +954,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     Call Mode
+     Call Mode + LAYOUT FIX
   ========================== */
   function inputUI(q) {
     const existing = state.answers[q.key] || "";
@@ -982,14 +987,12 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     }
 
     const Q = currentQuestions();
-    // clamp idx if temp reorders list and idx exceeds length
     state.idx = Math.min(state.idx, Q.length - 1);
-
     const q = Q[state.idx];
     const isScript = q.type === "script";
     const scriptText = openingScriptFilled();
 
-    // TOP ROW: Questions + Snapshot side-by-side
+    // TOP: Questions + Snapshot
     const topRow = `
       <div class="split">
         <div class="col2">
@@ -1027,6 +1030,11 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
               <button class="btn" type="button" onclick="prefillFromLead()" ${state.lead ? "" : "disabled"}>Prefill from Lead</button>
             </div>
           </div>
+
+          <!-- LAYOUT FIX: Close the gap by stacking: Closing -> Temp -> Voss prompts -->
+          ${closeBlock()}
+          ${tempBlock()}
+          ${isScript ? "" : suggestionsBlock(q)}
         </div>
 
         <div class="col">
@@ -1035,25 +1043,11 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       </div>
     `;
 
-    $("app").innerHTML = `
-      <div class="wrap">
-        ${topRow}
-        <div class="split" style="margin-top:12px;">
-          <div class="col2">
-            ${isScript ? "" : suggestionsBlock(q)}
-            ${tempBlock()}
-            ${closeBlock()}
-          </div>
-          <div class="col">
-            <!-- intentionally left empty to keep top snapshot aligned with questions -->
-          </div>
-        </div>
-      </div>
-    `;
+    $("app").innerHTML = `<div class="wrap">${topRow}</div>`;
   }
 
   /* =========================
-     HubSpot copy outputs
+     HubSpot + Snapshot
   ========================== */
   function hubspotNoteText() {
     const lead = state.lead || {};
@@ -1114,6 +1108,47 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
+     NEXT LEAD / START NEW DEAL FIX
+  ========================== */
+  function findLeadIndex() {
+    if (!state.lead || !(state.leads || []).length) return -1;
+    return (state.leads || []).findIndex(x => String(x.id) === String(state.lead.id));
+  }
+
+  function selectLeadByIndex(i) {
+    const leads = state.leads || [];
+    if (!leads.length) { state.lead = null; return; }
+    const idx = Math.max(0, Math.min(i, leads.length - 1));
+    state.lead = leads[idx];
+  }
+
+  function resetDealOnly() {
+    state.idx = 0;
+    state.answers = {};
+    state.temperature = "CALM";
+    state.selectedSuggestion = "";
+    state.selectedClose = "";
+  }
+
+  function startNextDeal() {
+    // Reset answers + advance lead
+    const leads = state.leads || [];
+    const currentIdx = findLeadIndex();
+
+    resetDealOnly();
+
+    if (leads.length) {
+      const nextIdx = (currentIdx >= 0) ? (currentIdx + 1) : 0;
+      selectLeadByIndex(nextIdx % leads.length);
+      // Optional: prefill from lead by default? (keeping OFF unless you ask)
+      // prefillFromLead();
+    }
+
+    persist();
+    renderCallMode();
+  }
+
+  /* =========================
      Global Actions
   ========================== */
   window.renderDashboard = renderDashboard;
@@ -1127,7 +1162,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   window.selectLead = selectLead;
   window.prefillFromLead = prefillFromLead;
 
-  // autosave exposed globally for inline oninput
   window.autosaveAnswer = function (key, value) {
     autosaveAnswer(String(key || ""), value);
   };
@@ -1213,17 +1247,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     renderCallMode();
   };
 
-  window.resetDeal = function () {
-    state.idx = 0;
-    state.answers = {};
-    state.temperature = "CALM";
-    state.selectedSuggestion = "";
-    state.selectedClose = "";
-    persist();
-    renderCallMode();
-  };
-
-  // Notes buttons (notes also autosave while typing)
+  // Notes buttons
   window.copyNotes = function () {
     const notes = callNotesValue();
     if (!notes) { alert("No notes to copy."); return; }
@@ -1237,6 +1261,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     persist();
     renderCallMode();
   };
+
+  window.startNextDeal = startNextDeal;
 
   /* =========================
      INIT
