@@ -1,6 +1,7 @@
-// Nautilus Sales System — V12 (Elite Clean B + C + Quick Load + Call Notes in Snapshot)
-// Dashboard: Choose file → Quick Load (imports + auto-maps + applies mapping + selects lead #1) — stays on Dashboard
-// Call Mode: Voss flow + Stabilizer + HubSpot copy note + Notes field (saved + included in snapshot)
+// Nautilus Sales System — V13 (Autosave Everything + Snapshot Top Next to Questions)
+// Dashboard: Quick Load / Import+Map / Select Lead
+// Call Mode: Snapshot panel sits next to Questions at TOP
+// Autosave: text fields + notes autosave on every keystroke; option picks autosave on click
 
 (function () {
   const TEMP_LEVELS = ["CALM", "GUARDED", "DEFENSIVE", "RESISTANT"];
@@ -32,7 +33,9 @@
     leads: "nss_leads_v1",
     leadId: "nss_selected_lead_id_v1",
     answers: "nss_answers_v1",
-    mapping: "nss_mapping_v1"
+    mapping: "nss_mapping_v1",
+    idx: "nss_idx_v1",
+    temp: "nss_temp_v1"
   };
 
   function loadPersisted() {
@@ -45,6 +48,12 @@
 
       const mapping = JSON.parse(localStorage.getItem(LS_KEYS.mapping) || "{}");
       if (mapping && typeof mapping === "object") state.mapping = mapping;
+
+      const idx = Number(localStorage.getItem(LS_KEYS.idx) || "0");
+      if (!Number.isNaN(idx)) state.idx = Math.max(0, idx);
+
+      const temp = localStorage.getItem(LS_KEYS.temp);
+      if (temp && TEMP_LEVELS.includes(temp)) state.temperature = temp;
 
       const leadId = localStorage.getItem(LS_KEYS.leadId);
       if (leadId && state.leads.length) {
@@ -60,6 +69,8 @@
       localStorage.setItem(LS_KEYS.answers, JSON.stringify(state.answers || {}));
       localStorage.setItem(LS_KEYS.mapping, JSON.stringify(state.mapping || {}));
       localStorage.setItem(LS_KEYS.leadId, state.lead ? String(state.lead.id) : "");
+      localStorage.setItem(LS_KEYS.idx, String(state.idx || 0));
+      localStorage.setItem(LS_KEYS.temp, String(state.temperature || "CALM"));
     } catch (e) {}
   }
 
@@ -106,7 +117,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     QUESTION BANK (Greeting first)
+     QUESTION BANK
   ========================== */
   function q(key, section, prompt, placeholder) { return { key, section, prompt, type: "text", placeholder }; }
   function qs(key, section, prompt, options) { return { key, section, prompt, type: "single", options }; }
@@ -182,7 +193,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function currentQuestions() { return getQueue(); }
 
   /* =========================
-     VOSS STABILIZERS + PROMPTS
+     VOSS PROMPTS (short + varied)
   ========================== */
   function vossStabilizers() {
     return [
@@ -353,7 +364,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       .suggest{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(11,28,45,0.7);color:#E8EEF2;text-align:left;cursor:pointer}
       .pill{display:inline-flex;gap:8px;align-items:center;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.12);background:rgba(11,28,45,0.5);color:#E8EEF2}
       .label{opacity:.8;font-size:12px;margin-bottom:6px}
-      .split{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+      .split{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
       .col{flex:1;min-width:320px}
       .col2{flex:2;min-width:420px}
       .toggle{display:flex;gap:10px;align-items:center}
@@ -370,6 +381,17 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const style = document.createElement("style");
     style.textContent = css;
     document.head.appendChild(style);
+  }
+
+  /* =========================
+     Autosave Everything
+  ========================== */
+  function autosaveAnswer(key, value) {
+    if (!key) return;
+    state.answers[key] = String(value ?? "");
+    persist();
+    // keep the top bars current without re-rendering the whole page while typing
+    // (scores will be refreshed on any button click / render)
   }
 
   /* =========================
@@ -534,10 +556,15 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
         <div class="card" style="margin-top:12px;background:rgba(11,28,45,0.6);">
           <div class="card__title">Notes</div>
-          <div class="muted">Extra info that doesn’t fit neatly into the question fields.</div>
-          <textarea id="notesBox" class="textarea" placeholder="Type notes here…">${esc(callNotesValue())}</textarea>
+          <div class="muted">Extra info that doesn’t fit neatly into the question fields. (Autosaves)</div>
+          <textarea
+            id="notesBox"
+            class="textarea"
+            placeholder="Type notes here…"
+            oninput="autosaveAnswer('${NOTES_KEY}', this.value)"
+          >${esc(callNotesValue())}</textarea>
+
           <div class="row" style="margin-top:10px;">
-            <button class="btn" type="button" onclick="saveNotes()">Save Notes</button>
             <button class="btn" type="button" onclick="copyNotes()">Copy Notes</button>
             <button class="btn" type="button" onclick="clearNotes()">Clear Notes</button>
           </div>
@@ -687,7 +714,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     Import Excel/CSV (SheetJS)
+     Import Excel/CSV
   ========================== */
   function requireXLSX() {
     if (typeof XLSX === "undefined") {
@@ -820,6 +847,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         }
 
         state.mapping = suggested;
+
         const leads = json.map((r, idx) => {
           const lead = { id: String(Date.now()) + "_" + idx };
           for (const f of MAP_FIELDS) {
@@ -926,23 +954,23 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function inputUI(q) {
     const existing = state.answers[q.key] || "";
     if (q.type === "text") {
-      return `<input id="field" class="input" placeholder="${esc(q.placeholder || "")}" value="${esc(existing)}" />`;
+      return `
+        <input
+          id="field"
+          class="input"
+          placeholder="${esc(q.placeholder || "")}"
+          value="${esc(existing)}"
+          oninput="autosaveAnswer('${esc(q.key)}', this.value)"
+        />
+      `;
     }
     if (q.type === "single") {
+      const current = state.answers[q.key] || "";
       return `<div class="row">${q.options.map(opt => `
-        <button class="chip" type="button" onclick="pickOption('${esc(opt)}')">${esc(opt)}</button>
+        <button class="chip ${String(current)===String(opt) ? "chip--on" : ""}" type="button" onclick="pickOption('${esc(opt)}')">${esc(opt)}</button>
       `).join("")}</div>`;
     }
     return "";
-  }
-
-  function saveTextIfNeeded() {
-    const Q = currentQuestions();
-    const q = Q[state.idx];
-    if (!q || q.type !== "text") return;
-    const v = document.getElementById("field") ? document.getElementById("field").value.trim() : "";
-    state.answers[q.key] = v;
-    persist();
   }
 
   function renderCallMode() {
@@ -954,54 +982,70 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     }
 
     const Q = currentQuestions();
+    // clamp idx if temp reorders list and idx exceeds length
+    state.idx = Math.min(state.idx, Q.length - 1);
+
     const q = Q[state.idx];
     const isScript = q.type === "script";
     const scriptText = openingScriptFilled();
 
-    $("app").innerHTML = `
-      <div class="wrap">
-        <div class="muted">
-          ${state.lead ? `Lead: <b>${esc(state.lead.name || "—")}</b> • ${esc(state.lead.company_name || "—")}` : "No lead selected — open Dashboard to select/import."}
-        </div>
-
-        <div class="split">
-          <div class="col2">
-            <div class="card">
-              <div class="row" style="justify-content:space-between;align-items:center;">
-                <div class="pill">Phase: <b>${state.phase}</b></div>
-                <div class="pill">Structural: <b>${state.structural}</b>/100</div>
-                <div class="pill">Risk: <b>${state.risk}</b>/100</div>
-                <div class="pill">Temp: <b>${state.temperature}</b></div>
-              </div>
-
-              <div class="muted" style="margin-top:8px;">Question <b>${state.idx + 1}</b> of <b>${Q.length}</b> • <b>${esc(q.section)}</b></div>
-
-              <div class="q" style="margin-top:10px;">${esc(q.prompt)}</div>
-
-              ${
-                isScript
-                  ? `<div class="scriptBox" style="margin-top:10px;">${esc(scriptText)}</div>
-                     <div class="row" style="margin-top:10px;">
-                       <button class="btn" type="button" onclick="copyText('${esc(scriptText)}')">Copy Opening Script</button>
-                     </div>`
-                  : `<div style="margin-top:10px;">${inputUI(q)}</div>`
-              }
-
-              <div class="row" style="margin-top:12px;">
-                <button class="btn" type="button" onclick="backQ()" ${state.idx === 0 ? "disabled" : ""}>Back</button>
-                <button class="btn" type="button" onclick="nextQ()">Next</button>
-                <button class="btn" type="button" onclick="renderDashboard()">Dashboard</button>
-                <button class="btn" type="button" onclick="prefillFromLead()" ${state.lead ? "" : "disabled"}>Prefill from Lead</button>
-              </div>
+    // TOP ROW: Questions + Snapshot side-by-side
+    const topRow = `
+      <div class="split">
+        <div class="col2">
+          <div class="card">
+            <div class="row" style="justify-content:space-between;align-items:center;">
+              <div class="pill">Phase: <b>${state.phase}</b></div>
+              <div class="pill">Structural: <b>${state.structural}</b>/100</div>
+              <div class="pill">Risk: <b>${state.risk}</b>/100</div>
+              <div class="pill">Temp: <b>${state.temperature}</b></div>
             </div>
 
+            <div class="muted" style="margin-top:8px;">
+              ${state.lead ? `Lead: <b>${esc(state.lead.name || "—")}</b> • ${esc(state.lead.company_name || "—")}` : "No lead selected — open Dashboard to select/import."}
+            </div>
+
+            <div class="muted" style="margin-top:8px;">
+              Question <b>${state.idx + 1}</b> of <b>${Q.length}</b> • <b>${esc(q.section)}</b>
+            </div>
+
+            <div class="q" style="margin-top:10px;">${esc(q.prompt)}</div>
+
+            ${
+              isScript
+                ? `<div class="scriptBox" style="margin-top:10px;">${esc(scriptText)}</div>
+                   <div class="row" style="margin-top:10px;">
+                     <button class="btn" type="button" onclick="copyText('${esc(scriptText)}')">Copy Opening Script</button>
+                   </div>`
+                : `<div style="margin-top:10px;">${inputUI(q)}</div>`
+            }
+
+            <div class="row" style="margin-top:12px;">
+              <button class="btn" type="button" onclick="backQ()" ${state.idx === 0 ? "disabled" : ""}>Back</button>
+              <button class="btn" type="button" onclick="nextQ()">Next</button>
+              <button class="btn" type="button" onclick="renderDashboard()">Dashboard</button>
+              <button class="btn" type="button" onclick="prefillFromLead()" ${state.lead ? "" : "disabled"}>Prefill from Lead</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="col">
+          ${callSnapshot()}
+        </div>
+      </div>
+    `;
+
+    $("app").innerHTML = `
+      <div class="wrap">
+        ${topRow}
+        <div class="split" style="margin-top:12px;">
+          <div class="col2">
             ${isScript ? "" : suggestionsBlock(q)}
             ${tempBlock()}
             ${closeBlock()}
           </div>
-
           <div class="col">
-            ${callSnapshot()}
+            <!-- intentionally left empty to keep top snapshot aligned with questions -->
           </div>
         </div>
       </div>
@@ -1009,17 +1053,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
-     Notes actions
-  ========================== */
-  function saveNotesFromUI() {
-    const el = document.getElementById("notesBox");
-    const v = el ? el.value : "";
-    state.answers[NOTES_KEY] = String(v || "");
-    persist();
-  }
-
-  /* =========================
-     HubSpot copy outputs (includes notes)
+     HubSpot copy outputs
   ========================== */
   function hubspotNoteText() {
     const lead = state.lead || {};
@@ -1093,19 +1127,19 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   window.selectLead = selectLead;
   window.prefillFromLead = prefillFromLead;
 
+  // autosave exposed globally for inline oninput
+  window.autosaveAnswer = function (key, value) {
+    autosaveAnswer(String(key || ""), value);
+  };
+
   window.nextQ = function () {
     const Q = currentQuestions();
-    const q = Q[state.idx];
-    if (q && q.type === "text") saveTextIfNeeded();
     if (state.idx < Q.length - 1) state.idx += 1;
     persist();
     renderCallMode();
   };
 
   window.backQ = function () {
-    const Q = currentQuestions();
-    const q = Q[state.idx];
-    if (q && q.type === "text") saveTextIfNeeded();
     if (state.idx > 0) state.idx -= 1;
     persist();
     renderCallMode();
@@ -1114,7 +1148,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   window.pickOption = function (opt) {
     const Q = currentQuestions();
     const q = Q[state.idx];
-    state.answers[q.key] = opt;
+    state.answers[q.key] = String(opt || "");
     persist();
     if (state.idx < Q.length - 1) state.idx += 1;
     renderCallMode();
@@ -1140,14 +1174,12 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   window.copySnapshot = function () {
     computeScores();
-    saveNotesFromUI();
     copyToClipboard(snapshotText());
     alert("Copied: Snapshot ✅");
   };
 
   window.copyHubspotNote = function () {
     computeScores();
-    saveNotesFromUI();
     copyToClipboard(hubspotNoteText());
     alert("Copied: HubSpot Note ✅");
   };
@@ -1157,13 +1189,29 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     renderCallMode();
   };
 
-  window.setTemp = function (t) { state.temperature = t; persist(); renderCallMode(); };
+  window.setTemp = function (t) {
+    state.temperature = t;
+    persist();
+    renderCallMode();
+  };
 
-  window.toggleAdaptive = function (checked) { state.adaptiveFlow = !!checked; persist(); renderCallMode(); };
+  window.toggleAdaptive = function (checked) {
+    state.adaptiveFlow = !!checked;
+    persist();
+    renderCallMode();
+  };
 
-  window.toggleStabilizer = function (checked) { state.stabilizerMode = !!checked; persist(); renderCallMode(); };
+  window.toggleStabilizer = function (checked) {
+    state.stabilizerMode = !!checked;
+    persist();
+    renderCallMode();
+  };
 
-  window.toggleClose = function () { state.showClose = !state.showClose; persist(); renderCallMode(); };
+  window.toggleClose = function () {
+    state.showClose = !state.showClose;
+    persist();
+    renderCallMode();
+  };
 
   window.resetDeal = function () {
     state.idx = 0;
@@ -1175,14 +1223,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     renderCallMode();
   };
 
-  // Notes buttons
-  window.saveNotes = function () {
-    saveNotesFromUI();
-    alert("Saved: Notes ✅");
-  };
-
+  // Notes buttons (notes also autosave while typing)
   window.copyNotes = function () {
-    saveNotesFromUI();
     const notes = callNotesValue();
     if (!notes) { alert("No notes to copy."); return; }
     copyToClipboard(notes);
@@ -1195,16 +1237,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     persist();
     renderCallMode();
   };
-
-  /* =========================
-     Minimal required stubs (so nothing breaks)
-     (If you already have these in your previous builds, keep them there.
-      This V12 build focuses on Notes + Snapshot integration.)
-  ========================== */
-
-  // If you have these functions already in your earlier version and want them back,
-  // tell me and I’ll merge them into THIS full copy/paste file.
-  // For now, we keep the system stable and operational.
 
   /* =========================
      INIT
