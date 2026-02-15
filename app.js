@@ -1,5 +1,5 @@
-// Nautilus Sales System — V8
-// Dashboard: Import Excel/CSV call list + map columns + pick lead
+// Nautilus Sales System — V9 (Elite Clean B + C)
+// Dashboard: Import Excel/CSV call list + auto-detect headers + step tracker + manual Call Mode launch
 // Call Mode: auto-prefills lead info + Voss flow + Stabilizer + HubSpot copy note
 
 (function () {
@@ -8,10 +8,11 @@
   const state = {
     idx: 0,
     temperature: "CALM",
-    answers: {},            // deal answers
-    lead: null,             // selected lead from call list
-    leads: [],              // imported leads list
-    mapping: {},            // column mapping
+    answers: {},
+    lead: null,
+    leads: [],
+    mapping: {},
+    mappingSuggested: {},
     structural: 0,
     risk: 0,
     phase: "QUALIFY",
@@ -19,16 +20,21 @@
     adaptiveFlow: true,
     stabilizerMode: true,
     selectedSuggestion: "",
-    selectedClose: ""
+    selectedClose: "",
+    banner: "",
+    lastImportCount: 0,
+    importReady: false,      // file imported (raw rows exist)
+    mappingApplied: false    // leads built and visible
   };
 
   /* =========================
-     STORAGE (persists leads + last lead)
+     STORAGE
   ========================== */
   const LS_KEYS = {
     leads: "nss_leads_v1",
     leadId: "nss_selected_lead_id_v1",
-    answers: "nss_answers_v1"
+    answers: "nss_answers_v1",
+    mapping: "nss_mapping_v1"
   };
 
   function loadPersisted() {
@@ -38,6 +44,9 @@
 
       const answers = JSON.parse(localStorage.getItem(LS_KEYS.answers) || "{}");
       if (answers && typeof answers === "object") state.answers = answers;
+
+      const mapping = JSON.parse(localStorage.getItem(LS_KEYS.mapping) || "{}");
+      if (mapping && typeof mapping === "object") state.mapping = mapping;
 
       const leadId = localStorage.getItem(LS_KEYS.leadId);
       if (leadId && state.leads.length) {
@@ -51,14 +60,14 @@
     try {
       localStorage.setItem(LS_KEYS.leads, JSON.stringify(state.leads || []));
       localStorage.setItem(LS_KEYS.answers, JSON.stringify(state.answers || {}));
+      localStorage.setItem(LS_KEYS.mapping, JSON.stringify(state.mapping || {}));
       localStorage.setItem(LS_KEYS.leadId, state.lead ? String(state.lead.id) : "");
     } catch (e) {}
   }
 
   /* =========================
-     OPENING SCRIPT (auto-filled)
+     OPENING SCRIPT (in-question)
   ========================== */
-
   const OPENING_TEMPLATE = `
 Hi {{name}}, this is [Your Name] calling from the Commodity Resource Center.
 You recently submitted an inquiry for {{deal_summary}}. I’m calling to review your request and move this forward.
@@ -103,7 +112,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
      QUESTION BANK (Greeting first)
      Product-first flow
   ========================== */
-
   function q(key, section, prompt, placeholder) { return { key, section, prompt, type: "text", placeholder }; }
   function qs(key, section, prompt, options) { return { key, section, prompt, type: "single", options }; }
   function qscript(key, section, title) { return { key, section, prompt: title, type: "script" }; }
@@ -140,7 +148,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      TEMP-DRIVEN ORDER (Greeting stays first)
   ========================== */
-
   function getQueue() {
     const greeting = QUESTION_BANK.find(x => x.key === "opening_script");
     const rest = QUESTION_BANK.filter(x => x.key !== "opening_script");
@@ -179,9 +186,8 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function currentQuestions() { return getQueue(); }
 
   /* =========================
-     VOSS STABILIZERS + PROMPTS (kept short + non-repetitive)
+     VOSS STABILIZERS + PROMPTS
   ========================== */
-
   function vossStabilizers() {
     return [
       { label: "Label + Calibrate", text: "It sounds like something here doesn’t feel solid yet. What’s the biggest concern?" },
@@ -265,7 +271,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      Scoring
   ========================== */
-
   function hasValue(v) {
     if (v == null) return false;
     if (typeof v === "string") return v.trim().length > 0;
@@ -274,7 +279,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function computeScores() {
     const Q = currentQuestions();
-    const total = Math.max(Q.length - 1, 1); // exclude opening
+    const total = Math.max(Q.length - 1, 1);
     const answered = Object.keys(state.answers).filter(k => hasValue(state.answers[k])).length;
 
     state.structural = Math.round((answered / total) * 100);
@@ -299,7 +304,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      Clipboard
   ========================== */
-
   function copyToClipboard(text) {
     const t = String(text || "").trim();
     if (!t) return;
@@ -326,7 +330,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      UI Helpers
   ========================== */
-
   const $ = (id) => document.getElementById(id);
 
   function esc(s) {
@@ -342,6 +345,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const css = `
       .wrap{padding:20px;max-width:1200px}
       .muted{opacity:.85;margin:8px 0}
+      .banner{margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid rgba(198,169,74,0.5);background:rgba(11,28,45,0.65)}
       .card{margin-top:12px;padding:14px;border:1px solid rgba(198,169,74,0.45);border-radius:12px;background:#132A3A}
       .card__title{font-weight:900;margin-bottom:8px}
       .q{margin-top:8px;font-size:18px;font-weight:900;line-height:1.3}
@@ -367,6 +371,9 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
       th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;vertical-align:top}
       th{opacity:.85}
       .small{font-size:12px;opacity:.8}
+      .step{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+      .step .pill{opacity:.75}
+      .step .pill.on{opacity:1;outline:2px solid rgba(198,169,74,0.6)}
     `;
     const style = document.createElement("style");
     style.textContent = css;
@@ -376,7 +383,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      Stabilizer Mode
   ========================== */
-
   function shouldStabilizeNow() {
     if (!state.stabilizerMode) return false;
     return (state.temperature === "DEFENSIVE" || state.temperature === "RESISTANT");
@@ -403,6 +409,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
               <div class="row" style="margin-top:12px;">
                 <button class="btn" type="button" onclick="setTemp('GUARDED')">✅ Set Temp → GUARDED (resume)</button>
                 <button class="btn" type="button" onclick="setTemp('CALM')">✅ Set Temp → CALM (resume)</button>
+                <button class="btn" type="button" onclick="renderDashboard()">Back to Dashboard</button>
               </div>
             </div>
             ${tempBlock()}
@@ -419,7 +426,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      Blocks
   ========================== */
-
   function tempBlock() {
     return `
       <div class="card">
@@ -541,7 +547,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      Dashboard: Import + Map + Select Lead
   ========================== */
-
   const MAP_FIELDS = [
     { key: "name", label: "Name" },
     { key: "company_name", label: "Company Name" },
@@ -555,24 +560,51 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     { key: "packaging", label: "Container / Packaging" }
   ];
 
+  function stepPills() {
+    const s1 = true;
+    const s2 = !!state.importReady;
+    const s3 = !!state._rawHeaders;
+    const s4 = !!state.mappingApplied && (state.leads || []).length > 0;
+    const s5 = !!state.lead;
+    const s6 = false; // user chooses when to enter Call Mode
+
+    const pill = (on, label) => `<span class="pill ${on ? "on" : ""}">${label}</span>`;
+
+    return `
+      <div class="step">
+        ${pill(s1, "1) Choose File")}
+        ${pill(s2, "2) Import")}
+        ${pill(s3, "3) Map Columns")}
+        ${pill(s4, "4) Apply Mapping")}
+        ${pill(s5, "5) Select Lead")}
+        ${pill(s6, "6) Call Mode (optional)")}
+      </div>
+    `;
+  }
+
   function renderDashboard() {
     computeScores();
+
+    const leadsCount = (state.leads || []).length;
+    const selected = state.lead ? `${state.lead.name || "—"} (${state.lead.company_name || "—"})` : "No lead selected yet.";
 
     $("app").innerHTML = `
       <div class="wrap">
         <div class="card">
           <div class="card__title">Dashboard</div>
-          <div class="muted">Import your call list (Excel or CSV), map the columns, then click a lead to load Call Mode.</div>
+          <div class="muted">Import your call list (Excel or CSV), map columns (auto-detected when possible), then pick a lead to load Call Mode.</div>
+          ${stepPills()}
+          ${state.banner ? `<div class="banner">${esc(state.banner)}</div>` : ""}
 
           <div class="row" style="margin-top:10px;">
             <input id="fileInput" class="input" type="file" accept=".xlsx,.xls,.csv" />
             <button class="btn" type="button" onclick="importFile()">Import</button>
             <button class="btn" type="button" onclick="clearLeads()">Clear Call List</button>
-            <button class="btn" type="button" onclick="renderCallMode()">Go to Call Mode</button>
+            <button class="btn" type="button" onclick="renderCallMode()" ${state.lead ? "" : "disabled"}>Open Call Mode</button>
           </div>
 
           <div class="small" style="margin-top:8px;">
-            Tip: If your headers don’t match our fields, use the Column Mapper after import.
+            Elite mode: if headers match well, mapping applies automatically. If not, you’ll see the Column Mapper with best-guess preselected.
           </div>
         </div>
 
@@ -582,10 +614,10 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
         <div class="card">
           <div class="card__title">Current Selection</div>
-          <div class="muted">${state.lead ? `Loaded: <b>${esc(state.lead.name || "—")}</b> (${esc(state.lead.company_name || "—")})` : "No lead selected yet."}</div>
+          <div class="muted">Selected: <b>${esc(selected)}</b></div>
           <div class="row" style="margin-top:10px;">
-            <button class="btn" type="button" onclick="renderCallMode()" ${state.lead ? "" : "disabled"}>Open Call Mode with Selected Lead</button>
             <button class="btn" type="button" onclick="prefillFromLead()" ${state.lead ? "" : "disabled"}>Prefill Answers from Lead</button>
+            <button class="btn" type="button" onclick="renderCallMode()" ${state.lead ? "" : "disabled"}>Open Call Mode (your choice)</button>
           </div>
         </div>
       </div>
@@ -594,12 +626,30 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
 
   function renderMapper() {
     const headers = state._rawHeaders || [];
-    const options = [`<option value="">-- not provided --</option>`].concat(headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`)).join("");
+    const options = [`<option value="">-- not provided --</option>`]
+      .concat(headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`))
+      .join("");
+
+    // choose suggested value (auto) if available
+    const suggested = state.mappingSuggested || {};
+    const current = state.mapping || {};
+
+    const selectedAttr = (fieldKey, headerVal) => {
+      const best = (suggested[fieldKey] || current[fieldKey] || "");
+      return headerVal === best ? "selected" : "";
+    };
+
+    const optList = (fieldKey) => {
+      return [
+        `<option value="" ${selectedAttr(fieldKey, "")}>-- not provided --</option>`,
+        ...headers.map(h => `<option value="${esc(h)}" ${selectedAttr(fieldKey, h)}>${esc(h)}</option>`)
+      ].join("");
+    };
 
     return `
       <div class="card">
         <div class="card__title">Column Mapper</div>
-        <div class="muted">Match your spreadsheet headers to our fields. Then click “Apply Mapping”.</div>
+        <div class="muted">We preselected our best guess. Confirm and click <b>Apply Mapping</b>.</div>
 
         <div style="margin-top:10px;">
           ${MAP_FIELDS.map(f => `
@@ -607,7 +657,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
               <div class="k">${esc(f.label)}</div>
               <div class="v" style="width:55%;text-align:left;">
                 <select class="input" style="width:100%;" id="map_${esc(f.key)}">
-                  ${options}
+                  ${optList(f.key)}
                 </select>
               </div>
             </div>
@@ -650,7 +700,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     return `
       <div class="card">
         <div class="card__title">Call List (first 200 shown)</div>
-        <div class="muted">Click Select → then open Call Mode.</div>
+        <div class="muted">Click Select → then optionally open Call Mode.</div>
         <div style="overflow:auto;margin-top:10px;">
           <table>
             <thead>
@@ -666,13 +716,79 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   }
 
   /* =========================
+     Auto-detect Header Mapping (B + C elite)
+  ========================== */
+  function normalizeHeader(s) {
+    return safe(s)
+      .toLowerCase()
+      .replace(/[\s\-_]+/g, " ")
+      .replace(/[^\w\s]/g, "")
+      .trim();
+  }
+
+  const HEADER_SYNONYMS = {
+    name: ["name", "full name", "buyer name", "contact name", "contact"],
+    company_name: ["company", "company name", "buyer company", "registered company", "business name"],
+    country: ["country", "buyer country", "origin country", "location country"],
+    phone: ["phone", "phone number", "whatsapp", "whatsapp number", "mobile", "telephone", "tel", "contact number"],
+    email: ["email", "email address", "e mail", "mail"],
+    product: ["product", "commodity", "item", "product requested", "oil type"],
+    quantity: ["quantity", "qty", "volume", "amount", "mt", "metric tons", "tons", "containers"],
+    destination_port: ["destination", "destination port", "port", "port of destination", "delivery port", "destination country"],
+    target_price: ["target price", "price", "price target", "usd/mt", "usd mt", "target usd", "target range"],
+    packaging: ["packaging", "container", "container type", "pack", "delivery type", "flexitank", "bulk", "drums"]
+  };
+
+  function autoSuggestMapping(headers) {
+    const normHeaders = headers.map(h => ({ raw: h, norm: normalizeHeader(h) }));
+
+    const suggested = {};
+    let hits = 0;
+    let total = MAP_FIELDS.length;
+
+    for (const f of MAP_FIELDS) {
+      const syns = (HEADER_SYNONYMS[f.key] || []).map(normalizeHeader);
+
+      // exact or contains match scoring
+      let best = null;
+      let bestScore = 0;
+
+      for (const h of normHeaders) {
+        for (const s of syns) {
+          let score = 0;
+          if (h.norm === s) score = 1.0;
+          else if (h.norm.includes(s) || s.includes(h.norm)) score = 0.75;
+          else if (h.norm.split(" ").some(tok => s.split(" ").includes(tok))) score = 0.55;
+
+          if (score > bestScore) {
+            bestScore = score;
+            best = h.raw;
+          }
+        }
+      }
+
+      if (best && bestScore >= 0.75) {
+        suggested[f.key] = best;
+        hits += 1;
+      }
+    }
+
+    const confidence = hits / total;
+    return { suggested, confidence, hits, total };
+  }
+
+  /* =========================
      Import Excel/CSV
   ========================== */
-
   function importFile() {
     const input = document.getElementById("fileInput");
     if (!input || !input.files || !input.files[0]) {
       alert("Choose an Excel (.xlsx) or CSV file first.");
+      return;
+    }
+
+    if (typeof XLSX === "undefined") {
+      alert("SheetJS library not loaded. Check your index.html includes the XLSX script line.");
       return;
     }
 
@@ -686,21 +802,33 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
         const firstSheet = wb.SheetNames[0];
         const ws = wb.Sheets[firstSheet];
 
-        // read rows as array-of-objects using first row headers
         const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
         if (!json.length) {
           alert("No rows found in that file.");
           return;
         }
 
-        // capture headers for mapping UI
+        state.importReady = true;
+        state.lastImportCount = json.length;
+
         const headers = Object.keys(json[0] || {});
         state._rawHeaders = headers;
-
-        // store raw rows temporarily for mapping conversion
         state._rawRows = json;
 
-        alert(`Imported ${json.length} rows. Now map columns (Column Mapper) and click Apply Mapping.`);
+        // Auto-suggest mapping
+        const auto = autoSuggestMapping(headers);
+        state.mappingSuggested = auto.suggested;
+
+        // If high confidence, auto-apply mapping and build list (BUT DO NOT ENTER CALL MODE)
+        if (auto.confidence >= 0.75) {
+          state.banner = `Imported ${json.length} rows • Auto-mapped ${auto.hits}/${auto.total} fields • Ready to select a lead.`;
+          applyMapping(true); // silent mode
+          // ensure we stay on dashboard
+          renderDashboard();
+          return;
+        }
+
+        state.banner = `Imported ${json.length} rows • Mapping needed (auto-match was ${Math.round(auto.confidence * 100)}%). Use Column Mapper below.`;
         persist();
         renderDashboard();
       } catch (err) {
@@ -711,49 +839,53 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     reader.readAsArrayBuffer(file);
   }
 
-  function applyMapping() {
+  function applyMapping(silent) {
     const headers = state._rawHeaders || [];
     const rows = state._rawRows || [];
     if (!headers.length || !rows.length) {
-      alert("Import a file first.");
+      if (!silent) alert("Import a file first.");
       return;
     }
 
     const mapping = {};
     for (const f of MAP_FIELDS) {
       const sel = document.getElementById("map_" + f.key);
-      mapping[f.key] = sel ? sel.value : "";
+      // if mapper exists, use UI selection; otherwise use suggested/best
+      if (sel) mapping[f.key] = sel.value || "";
+      else mapping[f.key] = (state.mappingSuggested && state.mappingSuggested[f.key]) ? state.mappingSuggested[f.key] : (state.mapping[f.key] || "");
     }
     state.mapping = mapping;
 
-    // build leads array
     const leads = rows.map((r, idx) => {
       const lead = { id: String(Date.now()) + "_" + idx };
-
       for (const f of MAP_FIELDS) {
         const col = mapping[f.key];
         lead[f.key] = col ? safe(r[col]) : "";
       }
-
       return lead;
     });
 
     state.leads = leads;
+    state.mappingApplied = true;
+
     // auto-select first lead if none
     if (!state.lead && leads.length) state.lead = leads[0];
 
-    // cleanup raw temp
+    // cleanup raw temp (we don't need it after mapping)
     delete state._rawHeaders;
     delete state._rawRows;
 
     persist();
-    alert("Mapping applied. Call list is ready.");
+
+    if (!silent) alert("Mapping applied. Call list is ready.");
+    // Stay on dashboard always
     renderDashboard();
   }
 
   function hideMapping() {
     delete state._rawHeaders;
     delete state._rawRows;
+    state.mappingSuggested = {};
     renderDashboard();
   }
 
@@ -761,6 +893,9 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     if (!confirm("Clear the entire call list?")) return;
     state.leads = [];
     state.lead = null;
+    state.mappingApplied = false;
+    state.importReady = false;
+    state.banner = "";
     persist();
     renderDashboard();
   }
@@ -769,6 +904,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     const found = (state.leads || []).find(x => String(x.id) === String(id));
     if (!found) return;
     state.lead = found;
+    state.banner = `Selected lead: ${found.name || "—"} • Ready when you are.`;
     persist();
     renderDashboard();
   }
@@ -776,7 +912,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   function prefillFromLead() {
     if (!state.lead) return;
 
-    // Prefill deal answers from lead (does not overwrite if you already typed something)
     const lead = state.lead;
     const maybeSet = (k, v) => {
       if (!hasValue(state.answers[k]) && hasValue(v)) state.answers[k] = v;
@@ -789,14 +924,13 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
     maybeSet("packaging", lead.packaging);
 
     persist();
-    alert("Prefilled deal answers from lead (where blank).");
+    state.banner = "Prefilled deal answers from lead (only where blank).";
     renderDashboard();
   }
 
   /* =========================
      Call Mode
   ========================== */
-
   function inputUI(q) {
     const existing = state.answers[q.key] || "";
     if (q.type === "text") {
@@ -885,7 +1019,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      HubSpot copy outputs
   ========================== */
-
   function hubspotNoteText() {
     const lead = state.lead || {};
     const lines = [];
@@ -934,7 +1067,6 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      Global Actions
   ========================== */
-
   window.renderDashboard = renderDashboard;
   window.renderCallMode = renderCallMode;
 
@@ -1034,8 +1166,7 @@ To prepare your Soft Corporate Offer accurately, I just need to confirm a few de
   /* =========================
      INIT
   ========================== */
-
   injectStyle();
   loadPersisted();
-  renderDashboard(); // start on dashboard so you can import/select calls quickly
+  renderDashboard();
 })();
